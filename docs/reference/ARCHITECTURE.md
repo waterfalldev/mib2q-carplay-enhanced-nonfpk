@@ -122,6 +122,8 @@ libNmeVfs imports all four through its PLT (Recv `0x12af20`, Send `0x12af70`, De
 
 **Injected frames go through one worker thread.** `hook_inject_message()` snapshots `(link_session, generation)` and queues the frame; the worker re-checks both just before the stock `SendIAP2` and drops a frame whose values changed (`Dropped stale semantic frame …`, WARN). `generation` names **one iAP2 link session**: it advances when a stock link frame arrives on a new session or after an Identify boundary (`inject_note_link` / `inject_unlink` in `hook/framework/hook_framework.h`), and is never reset, so a frame queued for an old link cannot match the next one. Until 2026-09-24 it advanced on every stock Send. Telephony queues StartListUpdates from the Encode of stock `0x4154`, before that message's own Send, so whenever the stock Send won the race the worker dropped the request and the recents and favorites stayed empty for the whole session. Checked by `tests/inject_generation_test.c`. **[code]**
 
+**A refused send is tried once more.** When the stock `SendIAP2` returns non-zero, the worker waits 250 ms (inside the 500 ms shutdown wait), re-checks the generation and sends again. A second refusal drops the frame with a WARN. On the car, the first VehicleStatusUpdate came back `rc=13`. It had been queued while Cinemo was still taking the phone's StartVehicleStatusUpdates, and the phone then had no range or temperature until the range next changed, about 10 minutes later. Later sends went through (fork, 2026-10-19 logs). The retry path has no host test. **[car]** **[code]**
+
 ```mermaid
 sequenceDiagram
   accTitle: Injection worker race on the generation
