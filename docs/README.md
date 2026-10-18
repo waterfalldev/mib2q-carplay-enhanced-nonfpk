@@ -20,12 +20,27 @@ source code is the ground truth for what the system does.
 
 > 📌 **Before you touch a subsystem, read [Landmines](LANDMINES.md)** — the traps that already cost days.
 
-## 🧪 CarPlay emulator laboratory
+## 🍴 This fork
 
-The [CarPlay emulator laboratory](carplay-lab/README.md) has a separate source
-tree under `tests/carplay_lab/` and its own runbooks. Native vphone/QNX video
-and timing results are distinct from the [wireless implementation](wireless-carplay/README.md)
-and on-unit radio measurements.
+Most notes come from [upstream](https://github.com/luka-dev/mib2q-carplay-rgi) and describe its
+whole project. This fork ([README](../README.md)) adds CarPlay on map-over-MOST clusters
+([MOST Cluster](cluster-and-rgi/MOST_CLUSTER.md), [MOST MAP view](cluster-and-rgi/MOST_MAP_VIEW.md))
+and changes what ships:
+
+- **Left out of the builds:** telephony and vehicle data, 5.1 audio and the CarPlay UpMix row,
+  Siri on a short press, the CarPlay-mode popup skip and wireless CarPlay
+  ([what is left out](../README.md#not-shipped)). Their notes in **Audio** and **Wireless
+  CarPlay**, and the phone and vehicle-data notes in **Cluster and RGI** and **Connect and USB**,
+  describe upstream's code as it runs there.
+- **Packaging:** packages are built, installed and rolled back by
+  [mib2q-carplay-enhanced-tooling](https://github.com/waterfalldev/mib2q-carplay-enhanced-tooling)
+  ([Deploy and Release](build-and-deploy/DEPLOY_AND_RELEASE.md)). Notes that cite
+  `install_MoreIncredibleBash/`, `uninstall_MoreIncredibleBash/`, `logging_MoreIncredibleBash/`,
+  `scripts/prepare_install.sh` or the `scripts/test_install_*.sh` checks describe upstream's
+  M.I.B. installer, which this fork does not carry.
+- **Stock and third-party files:** the stock jars (`java_stock/`), the patched firmware binaries,
+  `docs/sources/` and `assets/` are not in this fork. Notes that cite them point at upstream's
+  copies; supply your own firmware files to build.
 
 ## 🧪 Current AltScreen pacing candidate
 
@@ -108,6 +123,8 @@ mindmap
     Cluster and RGI
       Contexts and layout
         Cluster Contexts
+        MOST Cluster
+        MOST MAP view
         KDK Geometry and Animation
         VC Layout and Fonts
         VC FPK State Machine
@@ -196,14 +213,6 @@ mindmap
         Stock 210 + hook/wireless
         Wireless CarPlay investigation history
         Wireless documentation migration
-    CarPlay Laboratory
-      vphone sender
-        vphone CarPlay laboratory
-        vphone and QNX timing measurements
-        Native CarPlay screen test
-      Earlier labs and review
-        iOS virtual machine laboratory
-        Wireless hook review against iOS and MHI2Q 210
     Build and Deploy
       Build and release
         Build System
@@ -233,8 +242,7 @@ mindmap
 | **AltScreen and Video** | [AltScreen and Video overview](altscreen-and-video/README.md) | cluster video (stream 111), OMX pipeline, boot loader, reconnect lifecycle |
 | **Connect and USB** | [Connect and USB overview](connect-and-usb/README.md) | NCM connect, USB replug recovery, PF firewall, iOS version gate |
 | **Wireless CarPlay** | [Wireless CarPlay overview](wireless-carplay/README.md) | stock210 hook, btstack graft, iAP2/MFi, receiver readiness, wired priority; parked after the 2026-10-13 on-unit radio check |
-| **CarPlay Laboratory** | [CarPlay Laboratory overview](carplay-lab/README.md) | vphone sender, native video over Direct NCM, QNX timing, earlier iOS VM labs |
-| **Build and Deploy** | [Build and Deploy overview](build-and-deploy/README.md) | Docker QNX build, hand-assembled release, RE artifacts |
+| **Build and Deploy** | [Build and Deploy overview](build-and-deploy/README.md) | Docker QNX build, packages from the tooling repository, what a package installs, RE artifacts |
 | **Reference** | — | [Architecture](reference/ARCHITECTURE.md), [Archive and History](reference/ARCHIVE_AND_HISTORY.md), [Hook to Java Bus](reference/HOOK_TO_JAVA_BUS.md), [iOS CarPlay Spatial Wireformat](reference/IOS_CARPLAY_SPATIAL_WIREFORMAT.md), [MHI2 MU1439 Port](reference/MHI2_MU1439_PORT.md), [Record Replay Tooling](reference/RECORD_REPLAY_TOOLING.md) |
 | **Traps** | [Landmines](LANDMINES.md) | cross-project rules that break, slow, or mislead |
 | **Sources** | [📚 Sources and research](#-sources-and-research) | the original audits, handoffs, papers and data files, verbatim |
@@ -311,7 +319,7 @@ Every curated note as a link, grouped like the mindmap above.
 
 **📊 Cluster and RGI** · [overview](cluster-and-rgi/README.md)
 
-- Contexts and layout: [Cluster Contexts](cluster-and-rgi/CLUSTER_CONTEXTS.md) · [KDK Geometry and Animation](cluster-and-rgi/KDK_GEOMETRY_AND_ANIMATION.md) · [VC Layout and Fonts](cluster-and-rgi/VC_LAYOUT_AND_FONTS.md) · [VC FPK State Machine](cluster-and-rgi/VC_FPK_STATE_MACHINE.md) · [PDC Small Stage](cluster-and-rgi/PDC_SMALL_STAGE.md) · [Nav Initializing Screen](cluster-and-rgi/NAV_INITIALIZING_SCREEN.md)
+- Contexts and layout: [Cluster Contexts](cluster-and-rgi/CLUSTER_CONTEXTS.md) · [MOST Cluster](cluster-and-rgi/MOST_CLUSTER.md) · [MOST MAP view](cluster-and-rgi/MOST_MAP_VIEW.md) · [KDK Geometry and Animation](cluster-and-rgi/KDK_GEOMETRY_AND_ANIMATION.md) · [VC Layout and Fonts](cluster-and-rgi/VC_LAYOUT_AND_FONTS.md) · [VC FPK State Machine](cluster-and-rgi/VC_FPK_STATE_MACHINE.md) · [PDC Small Stage](cluster-and-rgi/PDC_SMALL_STAGE.md) · [Nav Initializing Screen](cluster-and-rgi/NAV_INITIALIZING_SCREEN.md)
 - Route guidance: [RGI and BAP Bridge](cluster-and-rgi/RGI_AND_BAP_BRIDGE.md) · [iAP2 Route Guidance TLVs](cluster-and-rgi/IAP2_ROUTE_GUIDANCE_TLVS.md) · [Maneuver Mapping](cluster-and-rgi/MANEUVER_MAPPING.md) · [Lane Guidance](cluster-and-rgi/LANE_GUIDANCE.md) · [Distance Bargraph](cluster-and-rgi/DISTANCE_BARGRAPH.md) · [HUD Renderer](cluster-and-rgi/HUD_RENDERER.md) · [NavSD FctID Matrix](cluster-and-rgi/NAVSD_FCTID_MATRIX.md) · [Third-party Nav Apps](cluster-and-rgi/THIRD_PARTY_NAV_APPS.md)
 - Phone and telephony: [CarPlay Telephony](cluster-and-rgi/CARPLAY_TELEPHONY.md) · [iAP2 Communications](cluster-and-rgi/IAP2_COMMUNICATIONS.md) · [VC Telephone Tab](cluster-and-rgi/VC_TELEPHONE_TAB.md) · [Phone Tab Gating](cluster-and-rgi/PHONE_TAB_GATING.md) · [Smartphone Tab and Kombi DSI](cluster-and-rgi/SMARTPHONE_TAB_AND_KOMBI_DSI.md)
 - Open research: [CarPlay speed-limit investigation](cluster-and-rgi/CARPLAY_SPEED_LIMIT.md) · [iAP2 StartRoadObjectDetection and Type research](cluster-and-rgi/IAP2_ROAD_OBJECT_DETECTION.md)
@@ -338,11 +346,6 @@ Every curated note as a link, grouped like the mindmap above.
 - iOS, radio and hardware: [iOS 26/27 selection of stock AirPlay 210 MFi-SAP](wireless-carplay/IOS_AUTH_SELECTION.md) · [iOS wireless CarPlay gates](wireless-carplay/IOS_WIRELESS_SESSION_GATES.md) · [Wireless CarPlay and Wi-Fi](wireless-carplay/WIFI_AND_DISCOVERY.md) · [Wireless CarPlay on the Head Unit](wireless-carplay/HARDWARE_AND_DONORS.md) · [Wireless CarPlay PF profiles, offline](wireless-carplay/FIREWALL.md)
 - Evidence: [Stock 210 + hook/wireless](wireless-carplay/STOCK210_VALIDATION.md) · [Wireless CarPlay investigation history](wireless-carplay/history/README.md) · [Wireless documentation migration](wireless-carplay/history/MIGRATION.md)
 
-**🧪 CarPlay Laboratory** · [overview](carplay-lab/README.md)
-
-- vphone sender: [vphone CarPlay laboratory](carplay-lab/VPHONE_LAB.md) · [vphone and QNX timing measurements](carplay-lab/VPHONE_TIMING.md) · [Native CarPlay screen test](carplay-lab/NATIVE_SCREEN_TEST.md)
-- Earlier labs and review: [iOS virtual machine laboratory](carplay-lab/IOS_VM_LAB.md) · [Wireless hook review against iOS and MHI2Q 210](carplay-lab/IOS210_CODE_REVIEW.md)
-
 **📦 Build and Deploy** · [overview](build-and-deploy/README.md)
 
 - Build and release: [Build System](build-and-deploy/BUILD_SYSTEM.md) · [Deploy and Release](build-and-deploy/DEPLOY_AND_RELEASE.md) · [Scene Backend Deploy](build-and-deploy/SCENE_BACKEND_DEPLOY.md)
@@ -367,17 +370,15 @@ carry every durable fact. Beside them:
 | Folder | What it holds |
 | --- | --- |
 | `research/` | the long-form white papers — [UPMIX](research/UPMIX.md), [HSSR_UPMIX_MODEL](research/HSSR_UPMIX_MODEL.md), [VIRTUAL_CABIN](research/VIRTUAL_CABIN.md), [DOLBY_ATMOS_TEARDOWN](research/DOLBY_ATMOS_TEARDOWN.md) |
-| `sources/papers/` | upmix papers and SHARC manuals (PDF + extracted text), J525 wiring, connector and speaker-layout images |
-| `sources/` | primary evidence kept verbatim: the B9 speaker workbook (xlsx), SHARC matrix CSV, the frozen v2 acceptance protocol, the upmix run journals, the MIBRoot routing tables, the replug runbook |
-| `sources/reference/` | KDK 60 Hz samples (CSV), the SHARC disassembler source, the Pioneer APAC symbol table |
-| `sources/research/` | the MHI3 reference altScreen hook (C) and the decompiled stock Java + diffs for MU1316/1326/1439 |
-| `sources/acdb/`, `sources/captures/` | the patched ACDB and its script, the APAC live-capture manifest |
 
-Each of these is linked from the curated note that relies on it, at the point where it is used.
+Upstream also keeps `sources/` (papers and SHARC manuals, primary evidence kept verbatim, the
+KDK samples, the decompiled stock Java, the ACDB and capture manifests). This fork leaves it out
+because it holds stock and third-party material; the curated notes still link it where they use
+it, and those links resolve in [upstream](https://github.com/luka-dev/mib2q-carplay-rgi).
 The legacy prose docs (audits, handoffs, plans, RE reports) were merged into the curated notes
 and removed; every note's **Sources** section still names the originals it absorbed, and they
-remain in git history (commit `23972aa`). Other RE working sets live outside `docs/` in
-`assets/` (see [RE Artifacts](build-and-deploy/RE_ARTIFACTS.md)).
+remained in upstream's history at commit `23972aa` (not in this fork's history). Other RE working sets live outside `docs/`
+in upstream's `assets/`, also not in this fork (see [RE Artifacts](build-and-deploy/RE_ARTIFACTS.md)).
 
 Every code-state claim was reconciled against the current source on 2026-09-22 (the code is
 authoritative); training history, listening verdicts and on-car measurements keep the

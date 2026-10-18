@@ -7,9 +7,9 @@ The only CarPlay change to the firewall is the carplay0 inbound TCP rule: port
   rollback never depends on on-unit `.stock` copies (those were deleted to avoid
   clutter).
 - `patched/` — the widened result, `6030:6032`. **Reference/A-B only.** The
-  installer does NOT copy these: `install_MoreIncredibleBash/mod/custom.sh` makes
-  the same edit in-shell on the live profiles (so it needs no `patch`/sed on the
-  HU).
+  installer does NOT copy these: upstream's `install_MoreIncredibleBash/mod/custom.sh`
+  makes the same edit in-shell on the live profiles (so it needs no `patch`/sed on
+  the HU). This fork's tooling package does not make it yet.
 - `patch_pf.sh` — the recipe: regenerates `patched/` from `stock/` with the exact
   transform custom.sh applies (asserts one carplay0 rule per profile).
 
