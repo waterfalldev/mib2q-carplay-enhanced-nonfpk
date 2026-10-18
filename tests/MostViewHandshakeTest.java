@@ -264,7 +264,7 @@ public final class MostViewHandshakeTest {
         check(r.viewMode() == ClusterViewMode.VIEWMODE_KDK, "stock selects the arrows view once CarPlay guides: " + r.viewMode());
         check(sent.contains("ActiveRGType 1"), "stock's answer (arrows = 1) reaches the cluster through the gate: " + sent);
         check(last(sent, "RGStatus") == null, "stock's RGStatus stays gated (CarPlay owns FctID 17): " + sent);
-        check(r.kombi().contains("kombi 9"), "stock switches the kombi context to 9 (display ctx 73 -> CarPlay 81)");
+        check(r.kombi().contains("kombi 9"), "stock switches the kombi context to 9 (display ctx 73 -> CarPlay 83)");
         List<String> k = r.komoCalls();
         check(k.contains("rgSelect 1") && k.contains("fadeIn"), "stock selects the KDK view over KOMO and fades it in: " + k);
         check(r.carPlayRgType() == 1, "CarPlay's own FctID 39 carries the same arrows type: " + r.carPlayRgType());

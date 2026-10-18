@@ -435,7 +435,7 @@ public final class AltScreenModule implements Module, CarplayBus.Listener {
              * (isConnected), but never drive terminal-1 contexts or rates from here: no
              * connect-time switch, no ctx 80/81, no blocked stock switches, nothing to restore
              * later, no hook view-area traffic or plane-99 NAVSD gate.  During CarPlay guidance
-             * MostPresentation substitutes stock's own arrows requests (context 73 -> 81, full
+             * MostPresentation substitutes stock's own arrows requests (context 73 -> 83, full
              * rate 10 -> 30) and hands them back afterwards. */
             clusterContextsOwned = false;
             synchronized (LOCK) {

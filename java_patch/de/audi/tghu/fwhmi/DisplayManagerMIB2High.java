@@ -34,16 +34,16 @@ public class DisplayManagerMIB2High extends DisplayManager implements IDisplayLi
     private static final int CTX_MAP_ALT_KDK = 77;   // alt map + KDK + backings
     private static final int CTX_CARPLAY_NAV = 80;   // CarPlay VC: maneuver + backing + map
     private static final int CTX_CARPLAY_MAP = 81;   // CarPlay VC: map only
-    /* Context 81 means one thing per cluster coding.  On the Virtual Cockpit it is the map-only
-     * context above; on a MOST cluster it is the arrows view with CarPlay's maneuver in place of
-     * stock KDK 20 (dc[81] = {98}, MostPresentation.CTX_CARPLAY_KDK).  The coding is fixed per car,
-     * so configureDM() builds the one that applies and the MOST-only paths key on isMost(). */
-    private static final int CTX_CARPLAY_KDK_MOST = com.luka.carplay.cluster.MostPresentation.CTX_CARPLAY_KDK;   // 81
+    /* The MOST arrows and MAP views have their own contexts.  defineContexts() runs, and stock
+     * declares the table to the display service, before the cluster coding can be read: sysConst
+     * 541 reads 2 (the Virtual Cockpit value) at that point on a MOST car (v24, up07).  So every
+     * coding gets the same table, and only the paths that select a context key on the coding. */
+    private static final int CTX_CARPLAY_KDK_MOST = com.luka.carplay.cluster.MostPresentation.CTX_CARPLAY_KDK;   // 83
     private static final int CTX_CARPLAY_MAP_MOST = com.luka.carplay.cluster.MostPresentation.CTX_CARPLAY_MAP;   // 82
     private static final int FIRST_CARPLAY_CONTEXT = CTX_CARPLAY_NAV;   // every stock context id is < this
 
     /* ---- context-table sizing / G24 KDK variants ---- */
-    private static final int DC_SIZE_A5  = 83;    // stock 0..78 + CarPlay 80 (VC), 81 and 82 (MOST arrows / MAP)
+    private static final int DC_SIZE_A5  = 84;    // stock 0..78 + CarPlay 80, 81 (VC), 82 and 83 (MOST MAP / arrows)
     private static final int DC_SIZE_G24 = 158;   // stock + the +79 KDK-hoisted variants
     private static final int G24_KDK_CTX_OFFSET = 79;
     private int lastBlockedCarPlayContext = -1;
@@ -194,26 +194,24 @@ public class DisplayManagerMIB2High extends DisplayManager implements IDisplayLi
         this.dc[75] = new DisplayContext(75, new int[0]);
         this.dc[78] = new DisplayContext(78, new int[]{16, 59});
 
-        /* --- CarPlay cluster contexts (80; 81 and 82 for MOST), A5-class only (not G24) ---
+        /* --- CarPlay cluster contexts (80 and 81 for the Virtual Cockpit, 82 and 83 for MOST), A5 only ---
          *   z-order = array order (index 0 = front):
          *     dc[80] = {98, 101, 102, 99}  nav active: maneuver(98) over the two KDK 987 backings
          *                                  (101 = 328x180 sport, 102 = 210x153 popup) over base(99)
          *     dc[81] = {99}                no nav: base only
+         *     dc[82] = {99}, dc[83] = {98}  MOST MAP / arrows views (MostPresentation)
          *   98 = maneuver overlay (maneuver_render, transparent when idle); 99 = base (altscreen_render).
          *   Displayable 103 is NOT creatable (unregistered DSI id); 101/102 already exist as the 987
          *   Image backings, so we reuse those.  Plane geometry lives in ClusterLayerController; the
          *   80<->81 switch is driven by AltScreenModule. */
         if (this.framework.getKombiType() != KOMBI_TYPE_G24) {
             this.dc[CTX_CARPLAY_NAV] = new DisplayContext(CTX_CARPLAY_NAV, new int[]{98, 101, 102, 99});
-            if (com.luka.carplay.cluster.ClusterPlatform.isMost(this.framework)) {
-                /* MOST cluster arrows / MAP views with CarPlay's pictures in place of stock KDK 20 /
-                 * map 33 (MostPresentation).  Separate windows: 99 never resizes arrows window 98. */
-                this.dc[CTX_CARPLAY_KDK_MOST] = new DisplayContext(CTX_CARPLAY_KDK_MOST, new int[]{98});
-                this.dc[CTX_CARPLAY_MAP_MOST] = new DisplayContext(CTX_CARPLAY_MAP_MOST,
-                    new int[]{com.luka.carplay.cluster.MostPresentation.MAP_DISPLAYABLE});
-            } else {
-                this.dc[CTX_CARPLAY_MAP] = new DisplayContext(CTX_CARPLAY_MAP, new int[]{99});
-            }
+            this.dc[CTX_CARPLAY_MAP] = new DisplayContext(CTX_CARPLAY_MAP, new int[]{99});
+            /* MOST cluster MAP / arrows views with CarPlay's pictures in place of stock map 33 /
+             * KDK 20 (MostPresentation).  Separate windows: 99 never resizes arrows window 98. */
+            this.dc[CTX_CARPLAY_MAP_MOST] = new DisplayContext(CTX_CARPLAY_MAP_MOST,
+                new int[]{com.luka.carplay.cluster.MostPresentation.MAP_DISPLAYABLE});
+            this.dc[CTX_CARPLAY_KDK_MOST] = new DisplayContext(CTX_CARPLAY_KDK_MOST, new int[]{98});
         } else {
             this.defineContextsForG24();
         }
@@ -361,7 +359,7 @@ public class DisplayManagerMIB2High extends DisplayManager implements IDisplayLi
         }
 
         /* MOST arrows / MAP views.  Remember what stock asked for; while a CarPlay picture is
-         * requested, compose it (81 = {98}, 82 = {99}) wherever stock asks for 73 / 72. */
+         * requested, compose it (83 = {98}, 82 = {99}) wherever stock asks for 73 / 72. */
         boolean carPlayComposed = false;
         if (terminal == CLUSTER_TERMINAL) {
             if (listener instanceof StockContextReporter) {
@@ -374,10 +372,10 @@ public class DisplayManagerMIB2High extends DisplayManager implements IDisplayLi
                 }
                 listener = reporter.stock;
             }
-            /* Stock code that re-issues getCurrentContextID(1) reads 81 / 82 while CarPlay composes
+            /* Stock code that re-issues getCurrentContextID(1) reads 83 / 82 while CarPlay composes
              * them on a MOST cluster; that request means stock's arrows / MAP view.  Not on the
-             * Virtual Cockpit, where 81 is the map-only context AltScreenModule selects, nor on G24,
-             * where 81 and 82 are stock KDK contexts. */
+             * Virtual Cockpit, which never composes them, nor on G24, where 82 and 83 are stock KDK
+             * contexts. */
             if (this.framework.getKombiType() != KOMBI_TYPE_G24
                     && !com.luka.carplay.cluster.ClusterPlatform.ownsContexts()) {
                 ctx = com.luka.carplay.cluster.MostPresentation.logicalContext(ctx);
@@ -388,7 +386,7 @@ public class DisplayManagerMIB2High extends DisplayManager implements IDisplayLi
             if (composed != ctx) {
                 this.log.log(1000000, "DisplayManager#switchContext custom MOST source: context %1 -> %2",
                     ctx, composed);
-                /* Stock's listener receives its requested context, never physical81/82. */
+                /* Stock's listener receives its requested context, never physical 82/83. */
                 if (listener != null) {
                     listener = new StockContextReporter(listener, composed, ctx);
                 }
@@ -456,7 +454,7 @@ public class DisplayManagerMIB2High extends DisplayManager implements IDisplayLi
 
     /** reports a substituted terminal-1 switch to stock's listener as the context stock
      *  requested. The stock core can confirm a custom context modulo79. Stock's
-     *  model168 still sees KDK73 or MAP72/76, never physical81/82 or their remainders. */
+     *  model168 still sees KDK73 or MAP72/76, never physical 82/83 or their remainders. */
     private static final class StockContextReporter implements IDisplayListener {
         final IDisplayListener stock;
         final int composed;

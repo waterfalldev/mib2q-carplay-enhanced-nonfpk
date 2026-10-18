@@ -9,7 +9,7 @@
  * (distance, street, ETA) itself; those are fed by CarPlayKOMOService.
  *
  * Each view is one View below: while it is requested, the DisplayManager composes CarPlay's
- * renderer window wherever stock asks for that view's context - arrows 73 -> 81 = {98}
+ * renderer window wherever stock asks for that view's context - arrows 73 -> 83 = {98}
  * (maneuver_render's scene) and MAP 72 -> 82 = {99} (the phone's cluster map, decoded by the
  * renderer).  CarPlay route guidance requests the arrows (setActive); it, or the phone owning
  * CarPlay navigation (setNavigationOwner), requests the MAP view while the phone's cluster
@@ -50,7 +50,7 @@ import de.audi.tghu.fwhmi.IDisplayManagerKombiControl;
 public final class MostPresentation {
     public static final int TERMINAL_CLUSTER = com.luka.carplay.core.AltScreenModule.TERMINAL_CLUSTER;
     public static final int CTX_STOCK_KDK = 73;      /* stock arrows view: {20, 102, 101}; 101/102 absent on MOST */
-    public static final int CTX_CARPLAY_KDK = 81;    /* DisplayManagerMIB2High dc[81] = {98} */
+    public static final int CTX_CARPLAY_KDK = 83;    /* DisplayManagerMIB2High dc[83] = {98} */
     public static final int CTX_STOCK_MAP = 72;      /* stock MAP view: {33} */
     public static final int CTX_CARPLAY_MAP = 82;    /* DisplayManagerMIB2High dc[82] = {99} */
     public static final int MAP_DISPLAYABLE = 99;    /* maneuver_render's map window */
@@ -172,7 +172,7 @@ public final class MostPresentation {
     }
 
     /** Stock code that re-issues getCurrentContextID(1) reads a composed context; that request
-     *  means the view's stock context (81 -> 73, 82 -> 72).  Non-G24 cluster contexts only. */
+     *  means the view's stock context (83 -> 73, 82 -> 72).  Non-G24 cluster contexts only. */
     public static int logicalContext(int ctx) {
         for (int i = 0; i < VIEWS.length; i++) {
             if (ctx == VIEWS[i].composedContext) return VIEWS[i].stockContext;

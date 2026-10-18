@@ -393,7 +393,7 @@ public final class MostArrowsTest {
         try { out.write(text.getBytes("US-ASCII")); } finally { out.close(); }
     }
 
-    /** ctx 81 is composed, and 98 cropped, only once the renderer reports the requested window;
+    /** ctx 83 is composed, and 98 cropped, only once the renderer reports the requested window;
      *  a new size while composed hands the view back to stock 73 until it does (a real context
      *  switch, re-pointing the encoder); an unconfirmed size is composed after the wait, once. */
     static void composesOnlyOnceRendererPresents() throws Exception {
@@ -415,7 +415,7 @@ public final class MostArrowsTest {
         MostPresentation.setActive(true);
         hmi.idle();
         List<String> c = dsi.drain();
-        check(!MostPresentation.isActive() && !has(c, "switch 81 term 4") && !hasPrefix(c, "crop"),
+        check(!MostPresentation.isActive() && !has(c, "switch 83 term 4") && !hasPrefix(c, "crop"),
             "not composed or cropped before the renderer presents 400x220: " + c);
         check("0400 0220\n".equals(outputRequest()), "renderer asked for 400x220: " + outputRequest());
         check(viewField("ARROWS", "waitingOutputRequest") != null,
@@ -440,7 +440,7 @@ public final class MostArrowsTest {
         hmi.idle();
         check(!MostPresentation.isActive(), "a torn marker after the worker wakes is not confirmation");
         write(ready, "0400 0220\n");
-        check(waitFor(dsi, "switch 81 term 4", 1000L),
+        check(waitFor(dsi, "switch 83 term 4", 1000L),
             "a replacement waiter composes once the renderer confirms: " + dsi.calls);
         hmi.idle();
         c = dsi.drain();
@@ -449,7 +449,7 @@ public final class MostArrowsTest {
 
         kdk[0] = 656;                                   /* stock now reports another size */
         kdk[1] = 360;
-        hmi.run(new Runnable() { public void run() { MostPresentation.onContextApplied(81); } });
+        hmi.run(new Runnable() { public void run() { MostPresentation.onContextApplied(83); } });
         hmi.idle();
         hmi.idle();
         c = dsi.drain();
@@ -457,7 +457,7 @@ public final class MostArrowsTest {
             "new size while composed: stock 73 back, no crop past 98's buffer: " + c);
         check("0656 0360\n".equals(outputRequest()), "renderer asked for 656x360: " + outputRequest());
         write(ready, "0656 0360\n");
-        check(waitFor(dsi, "switch 81 term 4", 1000L), "re-composed (a real 73 -> 81 switch) once resized: " + dsi.calls);
+        check(waitFor(dsi, "switch 83 term 4", 1000L), "re-composed (a real 73 -> 83 switch) once resized: " + dsi.calls);
         hmi.idle();
         c = dsi.drain();
         check(has(c, "crop 98 src(0,0 656x360) dst(0,0 656x360)"), "cropped at the new size: " + c);
@@ -465,12 +465,12 @@ public final class MostArrowsTest {
         kdk[0] = 700;
         kdk[1] = 380;
         write(ready, "0700 0380\n");                  /* fast renderer confirmation */
-        hmi.run(new Runnable() { public void run() { MostPresentation.onContextApplied(81); } });
+        hmi.run(new Runnable() { public void run() { MostPresentation.onContextApplied(83); } });
         hmi.idle();
         c = dsi.drain();
-        check(has(c, "switch 73 term 4") && has(c, "switch 81 term 4")
+        check(has(c, "switch 73 term 4") && has(c, "switch 83 term 4")
               && has(c, "crop 98 src(0,0 700x380) dst(0,0 700x380)"),
-            "a confirmed new size still re-points the encoder through 73 -> 81: " + c);
+            "a confirmed new size still re-points the encoder through 73 -> 83: " + c);
         release(hmi);
         dsi.drain();
 
@@ -479,13 +479,13 @@ public final class MostArrowsTest {
         MostPresentation.setActive(true);
         hmi.idle();
         check(!MostPresentation.isActive(), "unconfirmed: waiting");
-        check(waitFor(dsi, "switch 81 term 4", MostPresentation.READY_WAIT_MS + 1500L),
+        check(waitFor(dsi, "switch 83 term 4", MostPresentation.READY_WAIT_MS + 1500L),
             "composed anyway after the wait: " + dsi.calls);
-        hmi.run(new Runnable() { public void run() { MostPresentation.onContextApplied(81); } });
+        hmi.run(new Runnable() { public void run() { MostPresentation.onContextApplied(83); } });
         Thread.sleep(300L);
         hmi.idle();
         c = dsi.drain();
-        check(MostPresentation.isActive() && count(c, "switch 81 term 4") == 1 && !has(c, "switch 73 term 4"),
+        check(MostPresentation.isActive() && count(c, "switch 83 term 4") == 1 && !has(c, "switch 73 term 4"),
             "composed anyway stays composed (no hand-back loop): " + c);
         release(hmi);
 
@@ -499,7 +499,7 @@ public final class MostArrowsTest {
         Thread.sleep(300L);
         hmi.idle();
         c = dsi.drain();
-        check(!MostPresentation.isActive() && !has(c, "switch 81 term 4"),
+        check(!MostPresentation.isActive() && !has(c, "switch 83 term 4"),
             "late confirmation after route end cannot compose the maneuver: " + c);
         check(dsi.offHmi.isEmpty(), "display service touched on the HMI thread: " + dsi.offHmi);
         endSession();
@@ -532,10 +532,10 @@ public final class MostArrowsTest {
         hmi.idle();
         Thread.sleep(300L);
         hmi.idle();
-        check(!MostPresentation.isActive() && !has(dsi.drain(), "switch 81 term 4"),
+        check(!MostPresentation.isActive() && !has(dsi.drain(), "switch 83 term 4"),
             "a report cannot confirm a request that was never written");
         check(missing.getParentFile().mkdirs(), "request directory created");
-        check(waitFor(dsi, "switch 81 term 4", 1000L), "composed once the request is written and reported: " + dsi.calls);
+        check(waitFor(dsi, "switch 83 term 4", 1000L), "composed once the request is written and reported: " + dsi.calls);
         check("0400 0220\n".equals(read(missing)), "request written on retry: " + read(missing));
         release(hmi);
         dsi.drain();
@@ -566,7 +566,7 @@ public final class MostArrowsTest {
         MostPresentation.setActive(true);
         hmi.idle();
         write(ready, "0656 0360\n");
-        check(waitFor(dsi, "switch 81 term 4", 1000L), "the new route's waiter composes once confirmed: " + dsi.calls);
+        check(waitFor(dsi, "switch 83 term 4", 1000L), "the new route's waiter composes once confirmed: " + dsi.calls);
         release(hmi);
         check(dsi.offHmi.isEmpty(), "display service touched on the HMI thread: " + dsi.offHmi);
         endSession();
@@ -575,7 +575,7 @@ public final class MostArrowsTest {
 
     /** The renderer's report carries a per-window token: a window it replaces on its own
      *  (swap failure, loss recovery, restart, or a resize that lands after the wait) is
-     *  followed by a hand-back and a real 73 -> 81 switch.  Waiting neither floods the HMI
+     *  followed by a hand-back and a real 73 -> 83 switch.  Waiting neither floods the HMI
      *  thread nor re-requests DSI extents. */
     static void windowTokenAndQuietWait() throws Exception {
         Hmi hmi = new Hmi();
@@ -594,22 +594,22 @@ public final class MostArrowsTest {
         dsi.drain();
         MostPresentation.setActive(true);
         hmi.idle();
-        check(MostPresentation.isActive() && has(dsi.drain(), "switch 81 term 4"), "composed over window token 1");
+        check(MostPresentation.isActive() && has(dsi.drain(), "switch 83 term 4"), "composed over window token 1");
 
         write(ready, "0800 0252 0000000100.0000000002\n");  /* renderer recreated 98 itself */
         check(waitFor(dsi, "switch 73 term 4", 2000L), "a new window token hands the view back: " + dsi.calls);
-        check(waitFor(dsi, "switch 81 term 4", 1000L), "and re-composes over the new window (encoder re-pointed): " + dsi.calls);
+        check(waitFor(dsi, "switch 83 term 4", 1000L), "and re-composes over the new window (encoder re-pointed): " + dsi.calls);
         hmi.idle();
         List<String> c = dsi.drain();
-        check(c.indexOf("switch 73 term 4") < c.lastIndexOf("switch 81 term 4") && MostPresentation.isActive(),
-            "73 before 81: a real context switch: " + c);
+        check(c.indexOf("switch 73 term 4") < c.lastIndexOf("switch 83 term 4") && MostPresentation.isActive(),
+            "73 before 83: a real context switch: " + c);
 
         check(ready.delete(), "report withdrawn (a recreation in progress)");
         Thread.sleep(1200L);
         hmi.idle();
         check(MostPresentation.isActive() && !has(dsi.drain(), "switch 73 term 4"), "a withdrawn report is waited out");
         write(ready, "0800 0252 0000000200.0000000001\n");  /* a restarted renderer */
-        check(waitFor(dsi, "switch 81 term 4", 2500L), "a restarted renderer's window is re-pointed too: " + dsi.calls);
+        check(waitFor(dsi, "switch 83 term 4", 2500L), "a restarted renderer's window is re-pointed too: " + dsi.calls);
         release(hmi);
         dsi.drain();
 
@@ -638,11 +638,11 @@ public final class MostArrowsTest {
         hmi.idle();
         Thread.sleep(4500L);
         write(ready, "0800 0252 0000000200.0000000003\n");
-        check(waitFor(dsi, "switch 81 term 4", 1000L), "a slow renderer is composed once it reports: " + dsi.calls);
+        check(waitFor(dsi, "switch 83 term 4", 1000L), "a slow renderer is composed once it reports: " + dsi.calls);
         Thread.sleep(700L);
         hmi.idle();
         c = dsi.drain();
-        check(count(c, "switch 81 term 4") == 1 && !has(c, "switch 73 term 4"),
+        check(count(c, "switch 83 term 4") == 1 && !has(c, "switch 73 term 4"),
             "a resize inside the renderer's worst case is not composed early and re-pointed: " + c);
         release(hmi);
         dsi.drain();
@@ -650,11 +650,11 @@ public final class MostArrowsTest {
         write(ready, "0328 0181 0000000200.0000000004\n"); /* never confirmed, then a late resize */
         MostPresentation.setActive(true);
         hmi.idle();
-        check(waitFor(dsi, "switch 81 term 4", MostPresentation.READY_WAIT_MS + 1500L),
+        check(waitFor(dsi, "switch 83 term 4", MostPresentation.READY_WAIT_MS + 1500L),
             "composed once for diagnosis after the wait: " + dsi.calls);
         dsi.drain();
         write(ready, "0800 0252 0000000200.0000000005\n");  /* the resize lands late */
-        check(waitFor(dsi, "switch 73 term 4", 2000L) && waitFor(dsi, "switch 81 term 4", 2000L),
+        check(waitFor(dsi, "switch 73 term 4", 2000L) && waitFor(dsi, "switch 83 term 4", 2000L),
             "a late resize after the diagnostic compose is re-pointed: " + dsi.calls);
         release(hmi);
         check(dsi.offHmi.isEmpty(), "display service touched on the HMI thread: " + dsi.offHmi);
@@ -717,16 +717,16 @@ public final class MostArrowsTest {
         hmi.idle();
         c = dsi.drain();
         check(MostPresentation.isActive(), "arrows view carries CarPlay once the HMI thread applied it");
-        check(has(c, "switch 81 term 4"), "CarPlay start re-issues the stock request as ctx 81 = {98}: " + c);
+        check(has(c, "switch 83 term 4"), "CarPlay start re-issues the stock request as ctx 83 = {98}: " + c);
         check(has(c, "crop 98 src(0,0 400x220) dst(0,0 400x220)"),
             "98 is the whole KOMO stream at stock KDK's 400x220, identity-cropped: " + c);
         check("0400 0220\n".equals(outputRequest()), "renderer asked for a 400x220 window: " + outputRequest());
         check(c.indexOf("opacity 98=0") >= 0 && c.indexOf("opacity 98=0") < c.indexOf("opacity 98=100"),
             "98 written 0 then 100, past the DM's boot-time opacity cache: " + c);
-        check(c.indexOf("crop 98 src(0,0 400x220) dst(0,0 400x220)") < c.indexOf("switch 81 term 4"),
-            "98 is placed before ctx 81 makes it visible: " + c);
+        check(c.indexOf("crop 98 src(0,0 400x220) dst(0,0 400x220)") < c.indexOf("switch 83 term 4"),
+            "98 is placed before ctx 83 makes it visible: " + c);
         check(!hasPrefix(c, "getExtents"), "cached extents are not re-requested: " + c);
-        check(count(c, "crop 98 ") == 1, "one setCropping per start, not re-sent when 81 is applied: " + c);
+        check(count(c, "crop 98 ") == 1, "one setCropping per start, not re-sent when 83 is applied: " + c);
 
         stockSwitch(hmi, dm, 72, 1, null);
         c = dsi.drain();
@@ -734,7 +734,7 @@ public final class MostArrowsTest {
 
         stockSwitch(hmi, dm, 73, 1, null);
         c = dsi.drain();
-        check(has(c, "switch 81 term 4"), "every stock arrows request carries CarPlay while active: " + c);
+        check(has(c, "switch 83 term 4"), "every stock arrows request carries CarPlay while active: " + c);
 
         stockSwitch(hmi, dm, 73, 0, null);
         c = dsi.drain();
@@ -747,7 +747,7 @@ public final class MostArrowsTest {
         check(has(c, "opacity 98=0") && has(c, "switch 73 term 4"),
             "CarPlay stop hides 98 and hands the arrows view back to stock ctx 73: " + c);
         check(c.indexOf("switch 73 term 4") < c.indexOf("opacity 98=0"),
-            "stock's 73 is back before 98 is hidden, so the arrows view is never an empty ctx 81: " + c);
+            "stock's 73 is back before 98 is hidden, so the arrows view is never an empty ctx 83: " + c);
         check(MostPresentation.substitute(1, 73) == 73, "inactive substitution is the identity");
         check(dsi.offHmi.isEmpty(), "every display-service call is made on the HMI thread: " + dsi.offHmi);
         endSession();
@@ -781,15 +781,15 @@ public final class MostArrowsTest {
             "requested rates remembered per terminal");
 
         /* Stock is at its full rate (10) when CarPlay composes the arrows view: 30 is sent once,
-         * on the HMI thread, after 81 is composed. */
+         * on the HMI thread, after 83 is composed. */
         stockSwitch(hmi, dm, 73, 1, null);
         dsi.drain();
         MostPresentation.setActive(true);
         hmi.idle();
         c = dsi.drain();
-        check(has(c, "switch 81 term 4") && count(c, "setUpdateRate ") == 1 && has(c, "setUpdateRate 4 30")
-            && c.indexOf("switch 81 term 4") < c.indexOf("setUpdateRate 4 30"),
-            "arrows-on raises stock's 10 to 30 once, after 81: " + c);
+        check(has(c, "switch 83 term 4") && count(c, "setUpdateRate ") == 1 && has(c, "setUpdateRate 4 30")
+            && c.indexOf("switch 83 term 4") < c.indexOf("setUpdateRate 4 30"),
+            "arrows-on raises stock's 10 to 30 once, after 83: " + c);
         check(DisplayManagerMIB2High.requestedUpdateRate(1) == 10, "stock's own request stays recorded as 10");
 
         /* While composed: stock's 1 and 0 pass through, its 10 becomes 30, other terminals are untouched. */
@@ -822,7 +822,7 @@ public final class MostArrowsTest {
         MostPresentation.setActive(true);
         hmi.idle();
         c = dsi.drain();
-        check(has(c, "switch 81 term 4") && !hasPrefix(c, "setUpdateRate"), "arrows-on at stock's 1 sends no rate: " + c);
+        check(has(c, "switch 83 term 4") && !hasPrefix(c, "setUpdateRate"), "arrows-on at stock's 1 sends no rate: " + c);
         release(hmi);
         c = dsi.drain();
         check(has(c, "switch 73 term 4") && !hasPrefix(c, "setUpdateRate"), "arrows-off at stock's 1 sends no rate: " + c);
@@ -864,9 +864,9 @@ public final class MostArrowsTest {
 
         MostPresentation.setActive(true);
         hmi.idle();
-        check(has(dsi.drain(), "switch 81 term 4"), "CarPlay start composes ctx 81");
+        check(has(dsi.drain(), "switch 83 term 4"), "CarPlay start composes ctx 83");
         check(stock.seen.equals(java.util.Arrays.asList("73 term 1")),
-            "CarPlay start (reapply) reports 73 to stock's listener, never 81 or 81 % 79 = 2: " + stock.seen);
+            "CarPlay start (reapply) reports 73 to stock's listener, never 83 or 83 % 79 = 4: " + stock.seen);
         check(field(DisplayManagerMIB2High.class, "lastClusterListener").get(dm) == stock,
             "the recorded listener is stock's own, not the reporting wrapper");
         stock.seen.clear();
@@ -877,8 +877,8 @@ public final class MostArrowsTest {
         stockSwitch(hmi, dm, 73, 1, stock);
         Thread.sleep(1000L);
         hmi.idle();
-        check(stock.seen.contains("73 term 1"), "late-confirmed ctx 81 reported to stock as 73: " + stock.seen);
-        check(!stock.seen.contains("2 term 1") && !stock.seen.contains("81 term 1"),
+        check(stock.seen.contains("73 term 1"), "late-confirmed ctx 83 reported to stock as 73: " + stock.seen);
+        check(!stock.seen.contains("4 term 1") && !stock.seen.contains("83 term 1"),
             "stock never sees CarPlay's context number: " + stock.seen);
         dsi.answerDelayMs = 5L;
         stock.seen.clear();
@@ -911,7 +911,7 @@ public final class MostArrowsTest {
 
         set(dm, "initialized", Boolean.FALSE);                   /* display service gone */
         stockSwitch(hmi, dm, 73, 1, stock);                      /* driver picks the arrows view */
-        check(((Integer) field(DisplayManager.class, "bufferedContext").get(dm)).intValue() == 81,
+        check(((Integer) field(DisplayManager.class, "bufferedContext").get(dm)).intValue() == 83,
             "stock buffers the composed context");
         dsi.drain();
         stock.seen.clear();
@@ -929,13 +929,13 @@ public final class MostArrowsTest {
         };
         hmi.run(replay);
         List<String> c = dsi.drain();
-        check(has(c, "switch 81 term 4"), "replay while CarPlay guides: CarPlay's maneuver: " + c);
+        check(has(c, "switch 83 term 4"), "replay while CarPlay guides: CarPlay's maneuver: " + c);
         check(stock.seen.equals(java.util.Arrays.asList("73 term 1")), "replay reports stock's own context: " + stock.seen);
         check(((Integer) field(DisplayManagerMIB2High.class, "lastClusterRequest").get(dm)).intValue() == 73
             && field(DisplayManagerMIB2High.class, "lastClusterListener").get(dm) == stock,
             "replay recorded as stock's original request and listener");
 
-        set(dm, "initialized", Boolean.FALSE);                   /* gone again, ctx 81 buffered... */
+        set(dm, "initialized", Boolean.FALSE);                   /* gone again, ctx 83 buffered... */
         stockSwitch(hmi, dm, 73, 1, stock);
         MostPresentation.setActive(false);                       /* ...and CarPlay stops meanwhile */
         hmi.idle();
@@ -943,15 +943,15 @@ public final class MostArrowsTest {
         check(((Integer) field(DisplayManager.class, "bufferedContext").get(dm)).intValue() == 73 && held[1] == stock,
             "CarPlay stop while the service is away re-buffers stock ctx 73 with stock's listener");
 
-        field(DisplayManager.class, "bufferedContext").set(dm, Integer.valueOf(81));   /* even a stale 81 replay */
+        field(DisplayManager.class, "bufferedContext").set(dm, Integer.valueOf(83));   /* even a stale 83 replay */
         held[1] = stockReporter(dm, stock);
         set(dm, "initialized", Boolean.TRUE);
         dsi.drain();
         stock.seen.clear();
         hmi.run(replay);
         c = dsi.drain();
-        check(has(c, "switch 73 term 4") && !has(c, "switch 81 term 4"),
-            "a stale ctx-81 replay after CarPlay stopped becomes stock ctx 73: " + c);
+        check(has(c, "switch 73 term 4") && !has(c, "switch 83 term 4"),
+            "a stale ctx-83 replay after CarPlay stopped becomes stock ctx 73: " + c);
         check(stock.seen.equals(java.util.Arrays.asList("73 term 1")), "stale replay reports 73: " + stock.seen);
         check(dsi.offHmi.isEmpty(), "every display-service call is made on the HMI thread: " + dsi.offHmi);
         endSession();
@@ -962,7 +962,7 @@ public final class MostArrowsTest {
         Class<?> c = Class.forName("de.audi.tghu.fwhmi.DisplayManagerMIB2High$StockContextReporter");
         Constructor<?> ctor = c.getDeclaredConstructor(IDisplayListener.class, Integer.TYPE, Integer.TYPE);
         ctor.setAccessible(true);
-        return (IDisplayListener) ctor.newInstance(stock, Integer.valueOf(81), Integer.valueOf(73));
+        return (IDisplayListener) ctor.newInstance(stock, Integer.valueOf(83), Integer.valueOf(73));
     }
 
     /** 98 is the whole stream: at its origin whatever position stock gave KDK, sized to KDK's
@@ -1025,7 +1025,7 @@ public final class MostArrowsTest {
         endSession();
     }
 
-    /** A stock re-issue of the current context (81 while CarPlay composes) means stock's arrows
+    /** A stock re-issue of the current context (83 while CarPlay composes) means stock's arrows
      *  view, so CarPlay's stop still returns 73. */
     static void reissuedCarPlayContextMeansStockArrows() throws Exception {
         Hmi hmi = new Hmi();
@@ -1041,7 +1041,7 @@ public final class MostArrowsTest {
         hmi.idle();
         stockSwitch(hmi, dm, dm.getCurrentContextID(1), 1, null);  /* e.g. setKDKVisible re-issuing current */
         check(((Integer) field(DisplayManagerMIB2High.class, "lastClusterRequest").get(dm)).intValue() == 73,
-            "a re-issued 81 is recorded as stock's 73");
+            "a re-issued 83 is recorded as stock's 73");
         dsi.drain();
         release(hmi);
         List<String> c = dsi.drain();
@@ -1114,6 +1114,29 @@ public final class MostArrowsTest {
         check(ClusterPlatform.isMost() && !ClusterPlatform.ownsContexts(), "resolved MOST coding answers as MOST");
         ClusterPlatform.bind(framework(2));
         check(ClusterPlatform.ownsContexts() && !ClusterPlatform.isMost(), "a new binding clears the resolved coding");
+    }
+
+    /** up07: the table is built and declared to the display service before the coding can be read,
+     *  and a MOST car then reads 541 = 2.  Every coding gets the same table, so the MOST views
+     *  still find 82 = {99} and 83 = {98}, and the Virtual Cockpit 80 and 81 = {99}. */
+    static void contextTableIgnoresBootCoding() throws Exception {
+        for (int mode : new int[]{2, 1, 0}) {
+            DisplayManagerMIB2High dm = (DisplayManagerMIB2High) alloc(DisplayManagerMIB2High.class);
+            set(dm, "framework", framework(mode));
+            set(dm, "log", silentLog());
+            ClusterPlatform.bind(framework(mode));
+            Method define = DisplayManagerMIB2High.class.getDeclaredMethod("defineContexts");
+            define.setAccessible(true);
+            define.invoke(dm);
+            org.dsi.ifc.displaymanagement.DisplayContext[] dc =
+                (org.dsi.ifc.displaymanagement.DisplayContext[]) field(DisplayManager.class, "dc").get(dm);
+            check(java.util.Arrays.equals(dc[80].getDisplayableList(), new int[]{98, 101, 102, 99})
+                && java.util.Arrays.equals(dc[81].getDisplayableList(), new int[]{99})
+                && java.util.Arrays.equals(dc[MostPresentation.CTX_CARPLAY_MAP].getDisplayableList(), new int[]{99})
+                && java.util.Arrays.equals(dc[MostPresentation.CTX_CARPLAY_KDK].getDisplayableList(), new int[]{98}),
+                "541=" + mode + " at definition: CarPlay contexts 80-83 are the same for every coding");
+        }
+        ClusterPlatform.bind(framework(1));
     }
 
     /** The request maneuver_render reads every second: exactly "<w> <h>\n", written in place
@@ -1190,7 +1213,7 @@ public final class MostArrowsTest {
         AltScreenModule.setNavActive(true);               /* CarPlay route guidance starts */
         hmi.idle();
         List<String> c = dsi.drain();
-        check(has(c, "switch 81 term 4"), "RGI start swaps the showing arrows view to CarPlay: " + c);
+        check(has(c, "switch 83 term 4"), "RGI start swaps the showing arrows view to CarPlay: " + c);
         check(has(c, "getExtents 20"), "stock KDK extents requested from the display service: " + c);
         check(has(c, "crop 98 src(0,0 800x252) dst(0,0 800x252)"), "unknown KDK extents: KVS_Most 800x252 default: " + c);
 
@@ -1239,14 +1262,14 @@ public final class MostArrowsTest {
         MostPresentation.setActive(true);              /* queued, but the session is already gone */
         hmi.idle();
         List<String> c = dsi.drain();
-        check(!MostPresentation.isActive() && !has(c, "switch 81 term 4") && !hasPrefix(c, "opacity"),
+        check(!MostPresentation.isActive() && !has(c, "switch 83 term 4") && !hasPrefix(c, "opacity"),
             "disconnected: nothing composed: " + c);
 
         setStatic(AltScreenModule.class, "connected", Boolean.TRUE);   /* next session, route already requested */
         MostPresentation.setActive(true);
         hmi.idle();
         c = dsi.drain();
-        check(MostPresentation.isActive() && has(c, "switch 81 term 4"), "a repeated request in a live session applies: " + c);
+        check(MostPresentation.isActive() && has(c, "switch 83 term 4"), "a repeated request in a live session applies: " + c);
         release(hmi);
         endSession();
     }
@@ -1503,11 +1526,12 @@ public final class MostArrowsTest {
         windowTokenAndQuietWait();
         reissuedCarPlayContextMeansStockArrows();
         platformResolvedOnce();
+        contextTableIgnoresBootCoding();
         komoOwnershipAndReplay();
         komoFormattingMatchesStock();
         bapBridgeClaimPublishRelease();
         komoClaimIsAtomic();
-        System.out.println("MostArrowsTest: CarPlay maneuver in the MOST arrows view (ctx 73 -> 81, 98 sized to the KOMO stream), "
+        System.out.println("MostArrowsTest: CarPlay maneuver in the MOST arrows view (ctx 73 -> 83, 98 sized to the KOMO stream), "
             + "KOMO guidance text owned/replayed and stock-formatted PASS (" + checks + " checks)");
     }
 }

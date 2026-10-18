@@ -174,9 +174,9 @@ public final class MostMapViewTest {
             r.choose(72);
             r.choose(76);
             List<String> calls = r.dsi.drain();
-            check(calls.indexOf("switch 81 term 4") >= 0 && calls.indexOf("switch 82 term 4") > calls.indexOf("switch 81 term 4")
-                && calls.contains("switch 76 term 4"), "73 -> 81, 72 -> 82, alternate map 76 stays stock: " + calls);
-            check(MostPresentation.logicalContext(81) == 73 && MostPresentation.logicalContext(82) == 72
+            check(calls.indexOf("switch 83 term 4") >= 0 && calls.indexOf("switch 82 term 4") > calls.indexOf("switch 83 term 4")
+                && calls.contains("switch 76 term 4"), "73 -> 83, 72 -> 82, alternate map 76 stays stock: " + calls);
+            check(MostPresentation.logicalContext(83) == 73 && MostPresentation.logicalContext(82) == 72
                 && MostPresentation.logicalContext(76) == 76, "Composed contexts map back to their stock views");
             r.choose(82);
             check(((Integer) field(DisplayManagerMIB2High.class, "lastClusterRequest").get(r.dm)).intValue() == 72,
