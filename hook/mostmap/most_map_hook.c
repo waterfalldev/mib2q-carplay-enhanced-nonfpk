@@ -290,6 +290,11 @@ static void send_command(const cflite_t *cf, send_command_fn send, void *session
     cf_release(cf, command);
 }
 
+/* The night mode the cluster display shows: the last one sent to it, in that session; -1 after
+ * a showUI, whose new cluster UI has no known theme.  The commands worker's own. */
+static void *g_shown_session;
+static int g_shown_night = -1;
+
 static void run_commands(const cflite_t *cf, send_command_fn send, const alt_commands_t *c) {
     int i, night = c->night;
     if (c->show_ui) {
@@ -302,16 +307,21 @@ static void run_commands(const cflite_t *cf, send_command_fn send, const alt_com
         if (c->show_ui) {
             send_command(cf, send, c->session, "showUI", ALT_DISPLAY_URL, -1, -1);
             night = mmi_night();
-            if (night >= 0) {
-                /* The phone answered day mode with status 0 and kept the cluster map dark
-                 * (map24): a value it already holds is no change.  The opposite first makes
-                 * the MMI's one a real switch. */
-                struct timespec gap = { ALT_NIGHT_TOGGLE_MS / 1000, (ALT_NIGHT_TOGGLE_MS % 1000) * 1000000L };
-                send_command(cf, send, c->session, "setNightMode", NULL, -1, !night);
-                while (nanosleep(&gap, &gap) != 0 && errno == EINTR) { }
-            }
+            g_shown_night = -1;
         }
-        if (night >= 0) send_command(cf, send, c->session, "setNightMode", NULL, -1, night);
+        if (night >= 0 && (c->session != g_shown_session || night != g_shown_night)) {
+            /* The phone answered day mode with status 0 and kept the cluster map dark (map24):
+             * a value it already holds is no change.  Stock's own setNightMode, without a uuid
+             * on every MMI change, sets that value although the cluster map does not follow it
+             * (map23).  So every change goes as a real switch: the opposite first, then the new
+             * value.  A value the display already shows is not sent again. */
+            struct timespec gap = { ALT_NIGHT_TOGGLE_MS / 1000, (ALT_NIGHT_TOGGLE_MS % 1000) * 1000000L };
+            send_command(cf, send, c->session, "setNightMode", NULL, -1, !night);
+            while (nanosleep(&gap, &gap) != 0 && errno == EINTR) { }
+            send_command(cf, send, c->session, "setNightMode", NULL, -1, night);
+            g_shown_session = c->session;
+            g_shown_night = night;
+        }
         if (c->keyframe) send_command(cf, send, c->session, "forceKeyFrame", NULL, -1, -1);
         for (i = 0; i < (c->zoom < 0 ? -c->zoom : c->zoom); ++i)
             send_command(cf, send, c->session, "changeMapZoomLevel", NULL, c->zoom > 0, -1);

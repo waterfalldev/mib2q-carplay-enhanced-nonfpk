@@ -798,10 +798,15 @@ static void night_mode(void) {
           "display, then forceKeyFrame");
     sent = g_sent;
     mmi_night(0);
-    WAIT_WHILE(1000, g_sent < sent + 1 || session->refs != 2);
-    check(g_sent == sent + 1 && strcmp(g_sent_type[sent], "setNightMode") == 0 && g_sent_night[sent] == 0
-          && strcmp(g_sent_uuid[sent], ALT_DISPLAY_UUID) == 0 && session->refs == 2,
-          "a change while the session is held: setNightMode false at once");
+    WAIT_WHILE(1000, g_sent < sent + 2 || session->refs != 2);
+    check(g_sent == sent + 2 && strcmp(g_sent_type[sent], "setNightMode") == 0 && g_sent_night[sent] == 1
+          && strcmp(g_sent_type[sent + 1], "setNightMode") == 0 && g_sent_night[sent + 1] == 0
+          && strcmp(g_sent_uuid[sent + 1], ALT_DISPLAY_UUID) == 0 && session->refs == 2,
+          "a change while the session is held: setNightMode true then false at once (a real switch)");
+    sent = g_sent;
+    mmi_night(0);
+    usleep(50000);
+    check(g_sent == sent && session->refs == 2, "the night mode the display already shows is not sent again");
     most_map_module_def.airplay.on_teardown_final(session, NULL, 0);
     check(refs_become(session, 1), "the session goes as before: %d refs", session->refs);
     CFRelease(session);
