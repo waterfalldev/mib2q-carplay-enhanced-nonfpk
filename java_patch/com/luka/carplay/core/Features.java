@@ -1,5 +1,5 @@
 /*
- * Features - upstream features this fork does not ship yet.  False keeps stock behaviour.
+ * Features - upstream features this fork can leave out.  False keeps stock behaviour.
  *
  * PHONE_DATA matches the hook's HOOK_PHONE_DATA build switch (scripts/build_hook_common.sh):
  * CarPlay calls, lists and phone battery on the cluster telephone tab (GatedPhoneService,
@@ -21,8 +21,8 @@ package com.luka.carplay.core;
 public final class Features {
     public static final boolean PHONE_DATA = false;
     public static final boolean UPMIX = false;
-    public static final boolean SIRI_SHORT_PRESS = false;
-    public static final boolean CARPLAY_POPUP_SKIP = false;
+    public static final boolean SIRI_SHORT_PRESS = true;
+    public static final boolean CARPLAY_POPUP_SKIP = true;
 
     private Features() { }
 }
