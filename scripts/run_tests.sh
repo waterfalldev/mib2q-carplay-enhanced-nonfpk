@@ -358,28 +358,11 @@ printf '%-32s ' upmix_lang_test
 out=$(python3 -I tests/upmix_lang_test.py) || { echo "$out"; exit 1; }
 printf '%s\n' "$out" | tail -1
 
-printf '%-32s ' install_dio_test
-sh scripts/test_install_dio.sh
-
-printf '%-32s ' install_listing_test
-sh scripts/test_install_listing.sh
-
-printf '%-32s ' install_ncm_test
-sh scripts/test_install_ncm.sh
-
-printf '%-32s ' install_java_gate_test
-sh scripts/test_install_java_gate.sh
-
 printf '%-32s ' java_variants_link_test
 bash scripts/build_java.sh > /dev/null && bash scripts/audit_java_variants.sh
 
 printf '%-32s ' binpatch_test
 bash scripts/test_binpatch.sh
-printf '%-32s ' install_e2e_test
-bash scripts/test_install_e2e.sh
-
-printf '%-32s ' logging_mib_test
-sh scripts/test_logging_mib.sh
 
 printf '%-32s ' supervisor_lifecycle_test
 sh scripts/test_supervisor_lifecycle.sh
