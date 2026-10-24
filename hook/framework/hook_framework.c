@@ -22,6 +22,7 @@ DEFINE_LOG_MODULE(HOOK);
 #define INJECT_QUEUE_CAPACITY 8
 #define INJECT_FRAME_CAPACITY 512
 #define INJECT_SHUTDOWN_WAIT_MS 500
+#define INJECT_RETRY_PAUSE_NS 250000000L    /* inside the shutdown wait above */
 /* True only for the main dio_manager process.  dio_manager exec()s helper processes that
  * inherit the LD_PRELOAD; each loads the hook and, on its first hooked call, would open its
  * OWN connection to Java's single-accept bus (127.0.0.1:19810).  Those competing connects
@@ -171,10 +172,7 @@ static void* inject_worker_main(void* arg) {
     LOG_INFO(LOG_MODULE, "iAP2 injection worker started");
     for (;;) {
         inject_item_t item;
-        void* iap = NULL;
-        int (*send_iap2)(void*, int, const void*, int) = NULL;
-        int (*release_iap)(void*) = NULL;
-        int ret;
+        int attempt;
 
         pthread_mutex_lock(&g_inject_lock);
         while (!g_inject_shutdown && g_inject_count == 0)
@@ -188,45 +186,65 @@ static void* inject_worker_main(void* arg) {
         --g_inject_count;
         pthread_mutex_unlock(&g_inject_lock);
 
-        /* Revalidate immediately before sending.  A queued frame from an old
-         * phone generation is simply discarded after Identify/reconnect. */
-        ensure_fw_lock_init();
-        pthread_mutex_lock(&g_fw.lock);
-        if (!g_fw.shutting_down && g_fw.initialized &&
-            g_fw.ctx.inject.valid &&
-            g_fw.ctx.inject.generation == item.generation &&
-            g_fw.ctx.inject.link_session == item.link_session &&
-            g_fw.cinemo_iap && g_fw.cinemo_iap_owner_pid == (int)getpid() &&
-            g_fw.real_iap_send_iap2 && g_fw.real_iap_addref &&
-            g_fw.real_iap_release) {
-            iap = g_fw.cinemo_iap;
-            g_fw.real_iap_addref(iap);
-            send_iap2 = g_fw.real_iap_send_iap2;
-            release_iap = g_fw.real_iap_release;
-        }
-        pthread_mutex_unlock(&g_fw.lock);
+        /* A refused send is tried once more after a short pause.  On the car the
+         * VehicleStatusUpdate queued while Cinemo was still taking the phone's
+         * StartVehicleStatusUpdates came back rc=13 and was lost until the range
+         * next changed (logs new); a lost StartListUpdates would cost the session. */
+        for (attempt = 0; attempt < 2; attempt++) {
+            void* iap = NULL;
+            int (*send_iap2)(void*, int, const void*, int) = NULL;
+            int (*release_iap)(void*) = NULL;
+            int ret;
 
-        if (!iap) {
-            /* WARN: never expected in a live session (a lost StartListUpdates
-             * or call command), so it must reach the log without carplay_verbose. */
-            LOG_WARN(LOG_MODULE,
-                     "Dropped stale semantic frame gen=%u session=%u len=%u",
-                     (unsigned)item.generation, (unsigned)item.link_session,
-                     (unsigned)item.len);
-            continue;
-        }
+            /* Revalidate immediately before sending.  A queued frame from an old
+             * phone generation is simply discarded after Identify/reconnect. */
+            ensure_fw_lock_init();
+            pthread_mutex_lock(&g_fw.lock);
+            if (!g_fw.shutting_down && g_fw.initialized &&
+                g_fw.ctx.inject.valid &&
+                g_fw.ctx.inject.generation == item.generation &&
+                g_fw.ctx.inject.link_session == item.link_session &&
+                g_fw.cinemo_iap && g_fw.cinemo_iap_owner_pid == (int)getpid() &&
+                g_fw.real_iap_send_iap2 && g_fw.real_iap_addref &&
+                g_fw.real_iap_release) {
+                iap = g_fw.cinemo_iap;
+                g_fw.real_iap_addref(iap);
+                send_iap2 = g_fw.real_iap_send_iap2;
+                release_iap = g_fw.real_iap_release;
+            }
+            pthread_mutex_unlock(&g_fw.lock);
 
-        /* No hook/framework lock is held across the stock synchronous call. */
-        ret = send_iap2(iap, (int)item.link_session, item.frame, (int)item.len);
-        release_iap(iap);
-        if (ret != 0) {
+            if (!iap) {
+                /* WARN: never expected in a live session (a lost StartListUpdates
+                 * or call command), so it must reach the log without carplay_verbose. */
+                LOG_WARN(LOG_MODULE,
+                         "Dropped stale semantic frame gen=%u session=%u len=%u",
+                         (unsigned)item.generation, (unsigned)item.link_session,
+                         (unsigned)item.len);
+                break;
+            }
+
+            /* No hook/framework lock is held across the stock synchronous call. */
+            ret = send_iap2(iap, (int)item.link_session, item.frame, (int)item.len);
+            release_iap(iap);
+            if (ret == 0) {
+                if (attempt)
+                    LOG_WARN(LOG_MODULE, "SendIAP2 retry sent session=%u len=%u",
+                             (unsigned)item.link_session, (unsigned)item.len);
+                else
+                    LOG_INFO(LOG_MODULE,
+                             "Injected semantic frame via stock SendIAP2 session=%u len=%u",
+                             (unsigned)item.link_session, (unsigned)item.len);
+                break;
+            }
             LOG_WARN(LOG_MODULE,
-                     "Stock ICinemoIAP::SendIAP2 failed session=%u len=%u rc=%d",
-                     (unsigned)item.link_session, (unsigned)item.len, ret);
-        } else {
-            LOG_INFO(LOG_MODULE,
-                     "Injected semantic frame via stock SendIAP2 session=%u len=%u",
-                     (unsigned)item.link_session, (unsigned)item.len);
+                     "Stock ICinemoIAP::SendIAP2 failed session=%u len=%u rc=%d%s",
+                     (unsigned)item.link_session, (unsigned)item.len, ret,
+                     attempt ? "; frame dropped" : "; retrying in 250 ms");
+            if (!attempt) {
+                struct timespec pause = { 0, INJECT_RETRY_PAUSE_NS };
+                nanosleep(&pause, NULL);
+            }
         }
     }
 

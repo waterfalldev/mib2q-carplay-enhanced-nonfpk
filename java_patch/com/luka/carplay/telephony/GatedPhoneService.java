@@ -8,6 +8,12 @@
  * phone on without SIM), and the call functions 22/23/24 carry CarPlay's calls from
  * DSICarplay.updateCallState.  Stock's values for the gated functions are cached and
  * replayed when the gate goes off.  Every other method passes straight through.
+ * LockState is gated too: when CarPlay turns Bluetooth off, stock reports the
+ * departed HFP phone as "SIM not available" (8), the likely source of the "!" the
+ * MOST cluster showed on its phone tab over CarPlay's phone (logs new, 2026-10-19).
+ * The "!" stayed with LockState 0 (logs 01, 2026-10-20), so the status fields now match
+ * what stock gives an HFP phone: LockState declared supported, and RegisterState's packet
+ * data type left to the car's modem (255 unknown) instead of 0 "no data service".
  *
  * VC actions (accept, hangup, hold/resume/swap, dial, mic mute) come back through
  * GatedPhoneListener and go to hook/telephony (iAP2 AcceptCall, EndCall,
@@ -39,6 +45,8 @@ public class GatedPhoneService implements CombiBAPServicePhone {
 
     private static final int MCT_HFP = 3, MCT_APPLE_LINK = 5;
     private static final int TEL_STATE_PHONE_ON_NO_SIM = 15;
+    private static final int LOCK_STATE_NO_LOCK = 0;
+    private static final int PACKET_DATA_UNKNOWN = 255;
     private static final int SLOTS = 7;
     private static final int NO_DURATION = CALL_DURATION_NOT_AVAILABLE;
 
@@ -108,6 +116,8 @@ public class GatedPhoneService implements CombiBAPServicePhone {
     private CombiBAPCallStackEntry[] stockRecents;
     private CombiBAPFavoriteNumberEntry[] stockFavorites;
     private boolean haveStockMute, stockMute;
+    private boolean haveStockLock;
+    private int stockLock;
     private int stockSignal = -1, stockRegState, stockNetType, stockDataType;
     private boolean haveStockRegState, haveStockProvider, haveStockMissed;
     private int stockProvNameValid, stockProvIdValid, stockMissedCalls, stockMissedNumbers;
@@ -119,14 +129,17 @@ public class GatedPhoneService implements CombiBAPServicePhone {
     private String carrier = "";
     /* iPhone battery 0..100 from PowerUpdate, -1 = not reported. */
     private int batteryPct = -1, loggedBatteryPct = -2;
-    /* Missed-call indication: unreturned missed calls newer than the last VC reset. */
+    /* Missed-call indication: unreturned missed calls newer than the last VC reset and newer
+     * than the list the phone had when the session started (missedBaselinePending). */
     private long missedResetTs, newestRecentTs;   /* phone clock, s */
-    private int missedCalls, missedNumbers;
+    private int missedCalls, missedNumbers, loggedMissedCalls = -1;
+    private boolean missedBaselinePending = true;
 
     /* CarPlay recents/favorites from hook/telephony (iAP2 ListUpdate) and our mic mute. */
     private CombiBAPCallStackEntry[] recents = new CombiBAPCallStackEntry[0];
     private CombiBAPFavoriteNumberEntry[] favorites = new CombiBAPFavoriteNumberEntry[0];
     private boolean muted;
+    private int loggedRecents = -1, loggedFavorites = -1, loggedRegState = -1;
 
     /* CarPlay calls: slot order follows DSICarplay's array. */
     private CallState[] calls = new CallState[0];
@@ -255,7 +268,7 @@ public class GatedPhoneService implements CombiBAPServicePhone {
         boolean carplay = f != null && f.getMobileConnectionType() == MCT_APPLE_LINK;
         if (carplay != gated) {
             gated = carplay;
-            Log.i(TAG, "cluster phone tab " + (gated ? "-> CarPlay calls" : "-> stock"));
+            Log.w(TAG, "cluster phone tab " + (gated ? "-> CarPlay calls" : "-> stock"));
             GatedAddressBook.setCarPlay(gated);                /* Directory: no phonebook */
             if (gated) publishCarPlay();
             else { calls = new CallState[0]; replayStock(); }  /* no stale call on the next session */
@@ -295,14 +308,23 @@ public class GatedPhoneService implements CombiBAPServicePhone {
         if (!gated) real.updateMicMuteState(m);
     }
 
+    public synchronized void updateLockState(int l) {
+        if (gated && (!haveStockLock || l != stockLock))
+            Log.w(TAG, "stock LockState " + l + " kept from the cluster (CarPlay phone: no lock)");
+        haveStockLock = true; stockLock = l;
+        if (!gated) real.updateLockState(l);
+    }
+
     public synchronized void updateSignalQuality(int q) {
         stockSignal = q;
         if (!gated) real.updateSignalQuality(q);
     }
 
     public synchronized void updateRegisterState(int reg, int net, int data) {
+        boolean dataChanged = !haveStockRegState || data != stockDataType;
         haveStockRegState = true; stockRegState = reg; stockNetType = net; stockDataType = data;
         if (!gated) real.updateRegisterState(reg, net, data);
+        else if (dataChanged) real.updateRegisterState(regState, 0, data);   /* the car's modem moved */
     }
 
     public synchronized void updateNetworkProvider(int nameValid, String name, int idValid, String id) {
@@ -328,13 +350,25 @@ public class GatedPhoneService implements CombiBAPServicePhone {
 
     /* ---------------- CarPlay lists ---------------- */
 
-    private synchronized void setLists(CarplayBus.Data d) {
+    /* setLists, reachable by tests. */
+    synchronized void setLists(CarplayBus.Data d) {
         int rn = Math.max(0, d.num("r.n", 0)), fn = Math.max(0, d.num("f.n", 0));
         CombiBAPCallStackEntry[] r = new CombiBAPCallStackEntry[rn];
+        /* Missed calls already in the phone's list when the session starts are not new: stock
+         * counts only calls missed while a Bluetooth phone is connected (MissedCallIndicator),
+         * and the iPhone shows its own.  Counting them put a "!" for a new missed call beside the
+         * MOST cluster's phone icon on every drive (2026-10-24).  The hook publishes an empty
+         * list at every Identify, so the first complete list after an empty one is the baseline. */
+        if (rn == 0) {
+            missedBaselinePending = true;
+        } else if (missedBaselinePending && allRecentsArrived(d, rn)) {
+            for (int i = 0; i < rn; i++) missedResetTs = Math.max(missedResetTs, d.num64("r." + i + ".ts", 0));
+            missedBaselinePending = false;
+        }
         /* Missed calls at the top of the list (newest first), stopping at the first
          * answered or dialed call or at the last VC reset: the unreturned ones. */
         int mCalls = 0, mNumbers = 0;
-        boolean countingMissed = true;
+        boolean countingMissed = !missedBaselinePending;
         for (int i = 0; i < rn; i++) {
             if (!countingMissed) break;
             long ts = d.num64("r." + i + ".ts", 0);
@@ -363,8 +397,23 @@ public class GatedPhoneService implements CombiBAPServicePhone {
         }
         recents = r;
         favorites = f;
-        Log.i(TAG, "CarPlay lists: recents=" + rn + " favorites=" + fn);
+        /* Counts only, once per change: the on-car log answers "did the lists arrive". */
+        if (rn != loggedRecents || fn != loggedFavorites || mCalls != loggedMissedCalls) {
+            loggedRecents = rn; loggedFavorites = fn; loggedMissedCalls = mCalls;
+            Log.w(TAG, "CarPlay lists: recents=" + rn + " favorites=" + fn + " new missed=" + mCalls
+                + (gated ? "" : " (held: gate off)"));
+        }
         if (gated) publishLists();
+    }
+
+    /* The phone's first ListUpdate carries only the counts; the entries follow in later
+     * messages, each placed at its index (hook tel_merge_lists). */
+    private static boolean allRecentsArrived(CarplayBus.Data d, int rn) {
+        for (int i = 0; i < rn; i++) {
+            if (d.num64("r." + i + ".ts", 0) <= 0 && d.str("r." + i + ".a", "").length() == 0
+                    && d.str("r." + i + ".b", "").length() == 0) return false;
+        }
+        return true;
     }
 
     private void publishLists() {
@@ -382,6 +431,11 @@ public class GatedPhoneService implements CombiBAPServicePhone {
         regState = bapRegisterState(reg, d.bool("airplane", false));
         carrier = d.str("carrier", "");
         batteryPct = d.num("battery", -1);
+        if (regState != loggedRegState) {
+            loggedRegState = regState;
+            Log.w(TAG, "CarPlay network: iAP2 registration " + reg + " -> register state " + regState
+                + ", signal " + sig + ", data type " + packetDataNetworkType() + (gated ? "" : " (held: gate off)"));
+        }
         if (gated) publishComm();
     }
 
@@ -402,7 +456,7 @@ public class GatedPhoneService implements CombiBAPServicePhone {
 
     private void publishComm() {
         real.updateSignalQuality(signalPct);
-        real.updateRegisterState(regState, 0, 0);
+        real.updateRegisterState(regState, 0, packetDataNetworkType());
         int valid = carrier.length() > 0 ? 1 : 0;
         real.updateNetworkProvider(valid, carrier, valid, carrier);
         real.updateMobileBatteryLevel(batteryLevel(batteryPct));
@@ -411,6 +465,12 @@ public class GatedPhoneService implements CombiBAPServicePhone {
             Log.i(TAG, "iPhone battery " + batteryPct + "% -> VC level "
                 + batteryLevel(batteryPct).getMobileChargeLevel1().getChargeLevelPercent());
         }
+    }
+
+    /* The packet data type is the car's own modem (stock reads getNadInstanceState()), not the
+     * phone's, and stock gives a BT phone 255 "unknown" without one, never 0 "no data service". */
+    private int packetDataNetworkType() {
+        return haveStockRegState ? stockDataType : PACKET_DATA_UNKNOWN;
     }
 
     /* iAP2 RegistrationStatus (0 unknown, 1 not registered, 2 searching, 3 denied,
@@ -472,6 +532,7 @@ public class GatedPhoneService implements CombiBAPServicePhone {
     private void publishCarPlay() {
         real.updateFsgSetup(asHfp(stockFsg));
         real.updateFSGOperationState(TEL_STATE_PHONE_ON_NO_SIM, false, true);
+        real.updateLockState(LOCK_STATE_NO_LOCK);
         boolean[] support = new boolean[MOBILE_SERVICE_SUPPORT_MAX];
         support[MOBILE_SERVICE_SUPPORT_CALL_STATE] = true;
         support[MOBILE_SERVICE_SUPPORT_CALL_INFO] = true;
@@ -486,6 +547,9 @@ public class GatedPhoneService implements CombiBAPServicePhone {
         support[MOBILE_SERVICE_SUPPORT_FAVORITE_LIST] = true;
         support[MOBILE_SERVICE_SUPPORT_MISSED_CALL_INDICATION] = true;
         support[MOBILE_SERVICE_SUPPORT_REGISTER_STATE] = true;
+        /* Stock declares LockState for every phone (BAPPropertyTelMobileServiceSupport);
+         * without it the cluster may keep the "SIM not available" it took before. */
+        support[MOBILE_SERVICE_SUPPORT_LOCK_STATE] = true;
         support[MOBILE_SERVICE_SUPPORT_NETWORK_PROVIDER] = true;
         support[MOBILE_SERVICE_SUPPORT_SIGNAL_QUALITY] = true;
         support[MOBILE_SERVICE_SUPPORT_MOBILE_BATTERY_LEVEL] = true;
@@ -500,6 +564,7 @@ public class GatedPhoneService implements CombiBAPServicePhone {
     private void replayStock() {
         if (stockFsg != null) real.updateFsgSetup(stockFsg);
         if (haveStockOp) real.updateFSGOperationState(stockTelState, stockPrivacy, stockEnhancedPrivacy);
+        if (haveStockLock) real.updateLockState(stockLock);
         if (stockSupport != null) real.updateMobileServiceSupport(stockSupport);
         real.updateCallStates(stockStates, stockEcallPending);  /* null = stock's EMPTY_CALL_STATES */
         real.updateCallInfo(stockInfos);
@@ -581,7 +646,6 @@ public class GatedPhoneService implements CombiBAPServicePhone {
 
     /* ---------------- pass-through ---------------- */
 
-    public void updateLockState(int i) { real.updateLockState(i); }
     public void updateDisconnectReason(int i) { real.updateDisconnectReason(i); }
     public void dialNumberResult(int i) { real.dialNumberResult(i); }
     public void dialNumberFromAdbEntryResult(int i) { real.dialNumberFromAdbEntryResult(i); }

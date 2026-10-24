@@ -45,9 +45,9 @@ carplay_build_hook() {
   # HOOK_AUDIO=1 adds upstream's type-103 audio module (QSA/AirPlay audio interposers,
   # libcarplay_apac.so). This fork ships stock CarPlay audio: off unless asked for.
   local HOOK_AUDIO="${HOOK_AUDIO:-0}"
-  # HOOK_PHONE_DATA=1 adds upstream's telephony and vehicle modules (iAP2 call lists,
-  # vehicle status and speed). Not shipped in this fork: off unless asked for.
-  local HOOK_PHONE_DATA="${HOOK_PHONE_DATA:-0}"
+  # HOOK_PHONE_DATA=0 leaves out upstream's telephony and vehicle modules (iAP2 call
+  # lists, vehicle status and speed); pair it with Features.PHONE_DATA in the Java patch.
+  local HOOK_PHONE_DATA="${HOOK_PHONE_DATA:-1}"
   local HOOK_WIRELESS="${HOOK_WIRELESS:-0}"
   local WIRELESS_ALT_QEMU="${WIRELESS_ALT_QEMU:-0}"
   # There is one production image: logging compiled in, WARN only, and every runtime

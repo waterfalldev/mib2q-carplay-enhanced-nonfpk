@@ -19,7 +19,7 @@
 package com.luka.carplay.core;
 
 public final class Features {
-    public static final boolean PHONE_DATA = false;
+    public static final boolean PHONE_DATA = true;
     public static final boolean UPMIX = false;
     public static final boolean SIRI_SHORT_PRESS = true;
     public static final boolean CARPLAY_POPUP_SKIP = true;
