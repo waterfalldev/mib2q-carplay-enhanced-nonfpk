@@ -12,7 +12,9 @@ MCD=qnx6/MMX2QC/app/10/default/app/armle/usr/sbin/mcd
 P=$ROOT/deploy/binpatch/binpatch.py
 
 # mcd.conf priority lever (mcd/README.md): shipped custom == stock with active Priority
-# 11,10 -> 11,3, device list (incl. cd) untouched, idempotent.  No firmware needed.
+# 11,10 -> 11,3, device list (incl. cd) untouched, idempotent.  No firmware needed, but the
+# stock config: a tree without it (the fork carries no stock firmware files) skips this check.
+if [ -f "$ROOT/mcd/mcd.conf.stock" ]; then
 C=$(mktemp)
 sed 's/^\(Priority[[:space:]]*=[[:space:]]*11\),10$/\1,3/' "$ROOT/mcd/mcd.conf.stock" > "$C"
 cmp -s "$C" "$ROOT/mcd/mcd.conf.custom" || { echo "FAIL: mcd.conf.custom != sed(stock)"; rm -f "$C"; exit 1; }
@@ -21,6 +23,9 @@ grep -q '^\[/dev/cd\*\]' "$ROOT/mcd/mcd.conf.custom" || { echo "FAIL: cd section
 sed 's/^\(Priority[[:space:]]*=[[:space:]]*11\),10$/\1,3/' "$C" | cmp -s - "$C" || { echo "FAIL: conf sed not idempotent"; rm -f "$C"; exit 1; }
 rm -f "$C"
 echo "binpatch: mcd.conf priority lever == shipped, cd kept, idempotent PASS"
+else
+echo "binpatch: mcd.conf check SKIP (no stock mcd.conf in this tree)"
+fi
 [ -f "$U/MHI2Q_US_AUG22_P5087_MU1316/$SI" ] || { echo "SKIP (no unpacked firmware)"; exit 0; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 pys=python3; command -v micropython >/dev/null && pys="micropython python3"

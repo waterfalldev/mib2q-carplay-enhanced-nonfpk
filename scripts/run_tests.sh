@@ -117,7 +117,14 @@ cc -std=gnu99 -O1 -Wall -Wextra -Werror \
 "$OUT/coverart_pipeline"
 
 printf '%-32s ' altscreen_maps_profile_test
-cc -std=gnu99 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined \
+# gcc 10's ASan loops on DEADLYSIGNAL at start-up under high mmap ASLR (WSL2's
+# vm.mmap_rnd_bits=32), as the lane test notes; UBSan stays on.
+MAPS_SAN=address,undefined
+if [ "$(cat /proc/sys/vm/mmap_rnd_bits 2>/dev/null || echo 0)" -gt 28 ]; then
+    MAPS_SAN=undefined
+    printf '(ASan off: vm.mmap_rnd_bits > 28) '
+fi
+cc -std=gnu99 -O1 -g -Wall -Wextra -Werror -fsanitize=$MAPS_SAN \
     tests/altscreen_maps_profile_test.c -o "$OUT/alt_maps_profile"
 "$OUT/alt_maps_profile"
 
