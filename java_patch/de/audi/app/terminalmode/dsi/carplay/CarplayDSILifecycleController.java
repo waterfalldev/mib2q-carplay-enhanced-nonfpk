@@ -503,6 +503,8 @@ public class CarplayDSILifecycleController extends AbstractDSIController impleme
                  * their original semantics. TMState ignores appStateId 0. */
                 if (aappstate[i] != null && aappstate[i].getAppStateID() == 2) {
                     com.luka.carplay.cluster.MostPresentation.setNavigationOwner(aappstate[i].getOwner());
+                    /* the HMI no longer sees the phone take navigation, so its route stops here */
+                    com.luka.carplay.rgd.NativeRouteStop.onNavigationOwner(aappstate[i].getOwner());
                     aiappstate[i] = new CarPlayAppState(0, 0, 0);
                     continue;
                 }

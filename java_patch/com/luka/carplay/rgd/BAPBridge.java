@@ -638,6 +638,7 @@ public class BAPBridge {
             nativeStopWasRouteAbsent = false;
             nativeAbortIssued = false;
             nativeStopLogState = -1;
+            NativeRouteStop.onNavigationOwner(0);   /* the next session's phone ownership is a new edge */
             com.luka.carplay.core.AltScreenNavStatusGate.setRouteGuidanceBlocked(false);
             Log.i(TAG, "REPLACE: takeover disengaged (stock RG gate reopened)");
             com.luka.carplay.cluster.ClusterStateTrace.dump("takeover-released");
