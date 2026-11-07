@@ -62,16 +62,6 @@ tmp/
 tools/loader_preview/.prism-test-*
 tools/loader_preview/prism_preview
 
-
-# Installer diagnostics copied back to the SD card.
-/install_MoreIncredibleBash/mod/last-carplay-*.log
-/uninstall_MoreIncredibleBash/mod/last-carplay-*.log
-
-
-# Hand-staged release payload (docs/build-and-deploy/DEPLOY_AND_RELEASE.md) — never commit binaries.
-install_MoreIncredibleBash/mod/carplay/root/
-
-install_MoreIncredibleBash/mod/carplay/carplay_child.json
 *.i64
 
 # Obsidian per-user UI state (open panes, last file) — changes on every open
