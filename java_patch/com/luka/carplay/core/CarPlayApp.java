@@ -31,9 +31,9 @@ public final class CarPlayApp {
     public static final String BUILD_ID = "@BUILD_ID@";
 
     /* Modules, in start order. */
-    private static final Module[] MODULES = new Module[] {
-        new AltScreenModule(), new RgdModule(), new SteeringWheelInputModule(), new VehicleDataModule()
-    };
+    private static final Module[] MODULES = Features.PHONE_DATA
+        ? new Module[] { new AltScreenModule(), new RgdModule(), new SteeringWheelInputModule(), new VehicleDataModule() }
+        : new Module[] { new AltScreenModule(), new RgdModule(), new SteeringWheelInputModule() };
 
     private static final Object lock = new Object();
     private static final Object lifecycleLock = new Object();

@@ -12,6 +12,7 @@
 #include <string.h>
 #include <errno.h>
 #include <time.h>
+#include <sched.h>
 
 /* DM manager group we request + the MANAGER_STRING the DM stamps once it adopts
  * us.  Both verified by RE (see cluster_surface.h). */
@@ -122,19 +123,17 @@ cluster_surface_t *cluster_surface_create(const cluster_surface_cfg *cfg) {
 screen_window_t  cluster_surface_window(cluster_surface_t *s)  { return s ? s->win : NULL; }
 screen_context_t cluster_surface_context(cluster_surface_t *s) { return s ? s->ctx : NULL; }
 
-int cluster_surface_lost(cluster_surface_t *s) {
+/* One read of both probes: 1 = the window looks lost.  `report` logs why. */
+static int cs_probe(cluster_surface_t *s, int report) {
     int visible = -1;
     char mgr[64];
-
-    if (!s || !s->expected) return 0;
-    if (!s->win) return 1;                 /* a previous recreate failed */
 
     /* Probe 1: our window struct is still valid in this process. */
     errno = 0;
     if (screen_get_window_property_iv(s->win, SCREEN_PROPERTY_VISIBLE, &visible) != 0) {
         int e = errno;
         if (e == ENOENT || e == EBADF || e == EINVAL) {
-            fprintf(stderr, "cluster_surface: window invalidated errno=%d\n", e);
+            if (report) fprintf(stderr, "cluster_surface: window invalidated errno=%d\n", e);
             return 1;
         }
     }
@@ -149,11 +148,34 @@ int cluster_surface_lost(cluster_surface_t *s) {
         if (strcmp(mgr, CS_MANAGER_STRING) == 0) {
             s->manager_seen = 1;
         } else if (s->manager_seen) {
-            fprintf(stderr, "cluster_surface: disowned (manager='%s')\n", mgr);
+            if (report) fprintf(stderr, "cluster_surface: disowned (manager='%s')\n", mgr);
             return 1;
         }
     }
     return 0;
+}
+
+/* A read that says the window is gone is asked again before it counts.  Screen can garble
+ * a property read that meets the EGL updater thread's post on the same context: on the car
+ * the server logged "WIN_GET_PROPERTY followed by another subtype" and the read came back
+ * with an empty MANAGER_STRING, so a healthy window was destroyed and recreated mid-route
+ * (logs rel01, twice in 35 min).  A real loss reads the same every time. */
+#define CS_PROBE_READS 3
+
+int cluster_surface_lost(cluster_surface_t *s) {
+    int i;
+
+    if (!s || !s->expected) return 0;
+    if (!s->win) return 1;                 /* a previous recreate failed */
+
+    for (i = 0; i < CS_PROBE_READS; i++) {
+        if (!cs_probe(s, i == CS_PROBE_READS - 1)) {
+            if (i > 0) fprintf(stderr, "cluster_surface: probe disagreed %d time(s), window kept\n", i);
+            return 0;
+        }
+        sched_yield();
+    }
+    return 1;
 }
 
 int cluster_surface_recreate(cluster_surface_t *s) {
@@ -174,6 +196,14 @@ int cluster_surface_recreate(cluster_surface_t *s) {
      * initially-empty manager string with the previous window's observed owner. */
     s->manager_seen = 0;
     return cs_open_window(s);
+}
+
+int cluster_surface_resize(cluster_surface_t *s, int width, int height, int transparent) {
+    if (!s || width <= 0 || height <= 0) return -1;
+    s->cfg.width = width;
+    s->cfg.height = height;
+    s->cfg.transparent = transparent;
+    return cluster_surface_recreate(s);
 }
 
 void cluster_surface_destroy(cluster_surface_t *s) {

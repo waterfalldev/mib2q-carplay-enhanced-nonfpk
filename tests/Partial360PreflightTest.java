@@ -119,7 +119,8 @@ public final class Partial360PreflightTest {
             Method define = DisplayManagerMIB2High.class.getDeclaredMethod("defineContexts");
             define.setAccessible(true); define.invoke(dm);
             DisplayContext[] contexts = (DisplayContext[])get(dm, "dc");
-            check(contexts.length == (kombi == 4 ? 158 : 82), "context allocation changed: revisit ID audit");
+            /* A5: stock 0..78, CarPlay 80/81 (Virtual Cockpit) and 82/83 (MOST MAP / arrows views). */
+            check(contexts.length == (kombi == 4 ? 158 : 84), "context allocation changed: revisit ID audit");
             check(Arrays.equals(contexts[3].getDisplayableList(), new int[]{16,17}), "stock RVC context changed");
             check(Arrays.equals(contexts[78].getDisplayableList(), new int[]{16,59}), "ordinary CarPlay changed");
             List<Integer> holes = new ArrayList<>();

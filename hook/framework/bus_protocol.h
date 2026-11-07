@@ -86,6 +86,8 @@
                                         /* battery (0-100, -1 unknown) and    */
                                         /* charging (0 off/1 charging/2 full, */
                                         /* -1 unknown) from PowerUpdate 0xAE01 */
+#define EVT_MOST_MAP_VIDEO      0x0050  /* text: live:b stream:n - the phone's */
+                                        /* cluster stream reaches the MOST map  */
 
 /* ============================================================
  * Command types (Java -> Hook)
@@ -131,6 +133,10 @@
                                         /* value via /tmp/carplay_settings)    */
 #define CMD_ALT_CFG             0x011B  /* binary [u8 altscreen 0/1][u8 url_mode 0/1] */
                                         /* [u8 layout 0=left 1=center 2=right] */
+#define CMD_MOST_MAP_ZOOM       0x011C  /* binary [int8 signed MapScale step]: */
+                                        /* changeMapZoomLevel for the MOST map  */
+#define CMD_MOST_MAP_APPEARANCE 0x011D  /* binary [u8 night 0/1]: setNightMode  */
+                                        /* for the MOST map's cluster display  */
 /* NOTE: dispatchable inbound types must be < MAX_TYPES in bus.c (grown to      */
 /* cover this 0x11x block).                                                     */
 
