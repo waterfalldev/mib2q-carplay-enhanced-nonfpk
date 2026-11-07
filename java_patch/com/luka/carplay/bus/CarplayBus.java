@@ -39,7 +39,6 @@ public final class CarplayBus {
     /* flags */
     public static final int FLAG_STICKY = 0x01;
     public static final int FLAG_BINARY = 0x02;
-    public static final int FLAG_REPLAY = 0x04;
 
     /* events hook -> Java */
     public static final int EVT_HELLO       = 0x0001;
@@ -49,6 +48,7 @@ public final class CarplayBus {
     public static final int EVT_RGD_UPDATE  = 0x0020;
     public static final int EVT_TEL_LISTS   = 0x0040;   /* sticky text: r.* recents, f.* favorites */
     public static final int EVT_TEL_COMM    = 0x0041;   /* sticky text: signal, registration, airplane, carrier */
+    public static final int EVT_MOST_MAP_VIDEO = 0x0050;  /* live:b stream:n - the phone's cluster stream reaches the MOST map */
 
     /* commands Java -> hook (mirror bus_protocol.h) */
     public static final int CMD_SYNC_REQ       = 0x0100;   /* replay all sticky state       */
@@ -61,6 +61,8 @@ public final class CarplayBus {
     public static final int CMD_UPMIX          = 0x0119;   /* [u8 level 0 off..4 aggressive], MMI CarPlay settings "UpMix" */
     public static final int CMD_SPATIAL        = 0x011A;   /* [u8 enable 0=off 1=on], MMI CarPlay settings "Spatial Audio" */
     public static final int CMD_ALT_CFG        = 0x011B;   /* [u8 altscreen 0/1][u8 url_mode 0/1][u8 layout 0..2] */
+    public static final int CMD_MOST_MAP_ZOOM       = 0x011C;   /* [i8 signed MapScale step] for the MOST map */
+    public static final int CMD_MOST_MAP_APPEARANCE = 0x011D;   /* [u8 night 0/1] for the MOST map's cluster display */
 
     public interface Listener {
         void onFrame(int type, int flags, byte[] payload, int len);
@@ -284,19 +286,23 @@ public final class CarplayBus {
     /* ---- text payload parser (hook -> Java "key:type:val\n" frames) ---- */
     public static class Data {
         private static final int MAX = 1024;
-        private String[] keys = new String[MAX];
-        private String[] vals = new String[MAX];
-        private int count = 0;
+        /* The keys in frame order; values by key, the first of a repeated key winning. */
+        private final java.util.ArrayList keys = new java.util.ArrayList();
+        private final java.util.HashMap vals = new java.util.HashMap();
         private boolean overflow;
 
         void put(String key, String value) {
-            if (count < MAX) { keys[count] = key; vals[count] = value; count++; }
-            else overflow = true;
+            if (keys.size() >= MAX) { overflow = true; return; }
+            keys.add(key);
+            if (!vals.containsKey(key)) vals.put(key, value);
         }
 
+        /** The i-th key of the frame, in frame order. */
+        public String key(int i) { return (String) keys.get(i); }
+
         public String str(String key, String def) {
-            for (int i = 0; i < count; i++) if (key.equals(keys[i])) return vals[i];
-            return def;
+            String v = (String) vals.get(key);
+            return v != null ? v : def;
         }
         public String str(String key) { return str(key, null); }
 
@@ -336,11 +342,8 @@ public final class CarplayBus {
             }
             return out;
         }
-        public boolean has(String key) {
-            for (int i = 0; i < count; i++) if (key.equals(keys[i])) return true;
-            return false;
-        }
-        public int size() { return count; }
+        public boolean has(String key) { return vals.containsKey(key); }
+        public int size() { return keys.size(); }
         public boolean overflowed() { return overflow; }
     }
 

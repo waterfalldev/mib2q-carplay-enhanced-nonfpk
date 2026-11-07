@@ -27,6 +27,10 @@ package com.luka.carplay.core;
 
 import com.luka.carplay.bus.CarplayBus;
 import com.luka.carplay.cluster.ClusterLayerController;
+import com.luka.carplay.cluster.ClusterPlatform;
+import com.luka.carplay.cluster.ClusterStateTrace;
+import com.luka.carplay.cluster.ClusterVideo;
+import com.luka.carplay.cluster.MostPresentation;
 import com.luka.carplay.framework.Log;
 
 import de.audi.atip.hmi.view.IDisplayManager;
@@ -41,7 +45,7 @@ public final class AltScreenModule implements Module, CarplayBus.Listener {
     /* The three CarPlay cluster contexts; composition is defined in DisplayManagerMIB2High. */
     public static final int CTX_CLUSTER               = 80;   /* nav active + CarPlay map: {98 maneuver, 101/102 backing, 99 map} */
     public static final int CTX_CLUSTER_MAP           = 81;   /* no nav + CarPlay map: {99 map} only (no backing box, no maneuver) */
-    public static final int CTX_CLUSTER_STOCK_MAP_NAV = 82;   /* nav active + stock map: {98 maneuver, 101/102 backing, 33 stock map} */
+    public static final int CTX_CLUSTER_STOCK_MAP_NAV = 84;   /* nav active + stock map: {98 maneuver, 101/102 backing, 33 stock map} */
     public static final int CTX_STOCK_CLUSTER         = 74;
     private static final int CTX_BOUNCE       = 72;   /* kombi map — never ours; forces a real ctx change */
     private static final int BOUNCE_SLEEP_MS  = 180;  /* preContextSwitchHook settle (proven driver) */
@@ -72,6 +76,9 @@ public final class AltScreenModule implements Module, CarplayBus.Listener {
     /* true while the cluster is on OUR context (set AFTER the physical switch completes). */
     private static volatile boolean clusterActive = false;
     private static volatile boolean platformSupported = true;
+    /* terminal-1 contexts are ours only on the Virtual Cockpit composition
+     * (ClusterPlatform.ownsContexts).  Decided once per session in start(). */
+    private static volatile boolean clusterContextsOwned = false;
     private boolean enabled;
 
     /**
@@ -119,6 +126,19 @@ public final class AltScreenModule implements Module, CarplayBus.Listener {
         return platformSupported
             && (connected || videoAvailable)
             && (com.luka.carplay.connectivity.CarPlaySettingsUi.isAltScreenEnabled() || navActive);
+    }
+
+    /** true only while a session is connected AND this cluster uses the validated Virtual Cockpit
+     *  composition.  The terminal-1 context pin (DisplayManagerMIB2High, CombiMapController) and the
+     *  layer controller key on this, not on isConnected(): on a MOST or RGI-only cluster stock
+     *  ClusterViewMode/KOMOService owns terminal 1 and there is no ctx 80/81 presentation path, so
+     *  blocking stock there only desynchronises OEM state. */
+    public static boolean ownsClusterContext() { return clusterContextsOwned && isConnected(); }
+
+    /** isConnected() on a cluster whose map is CarPlay's altScreen plane.  A MOST or RGI-only
+     *  cluster keeps stock's map, so the steering-wheel zoom and the other plane paths stay stock. */
+    public static boolean isAltScreenCluster() {
+        return isConnected() && !ClusterPlatform.leavesContextsToStock();
     }
 
     /** DisplayManagerMIB2High uses this to distinguish our serialized 72/80/81/74
@@ -226,14 +246,16 @@ public final class AltScreenModule implements Module, CarplayBus.Listener {
     /** Called by the stock NAV_VIEW_SIZE_CHOICE model: value 0=fullscreen, value 1=smallscreen. */
     public static void setViewAreaMode(int mode) {
         mode = (mode == VIEWAREA_SMALLSCREEN) ? VIEWAREA_SMALLSCREEN : VIEWAREA_FULLSCREEN;
+        boolean altScreen = !ClusterPlatform.leavesContextsToStock();
         /* Renderer starts before RTSP 111 and needs the mode independently of
-         * the hook so its loader uses the correct physical safe area. */
-        AltscreenControlServer.setViewAreaMode(mode);
+         * the hook so its loader uses the correct physical safe area.  A MOST or RGI-only
+         * cluster has no altScreen plane: the mode only drives the local geometry below. */
+        if (altScreen) AltscreenControlServer.setViewAreaMode(mode);
         synchronized (LOCK) {
             if (desiredViewAreaMode == mode) return;
             desiredViewAreaMode = mode;
         }
-        sendViewAreaMode("NAV_VIEW_SIZE_CHOICE");
+        if (altScreen) sendViewAreaMode("NAV_VIEW_SIZE_CHOICE");
         /* KDK geometry/visibility follow incoming VC Fct54/Fct44. The requested
          * phone View mode must not move or reveal the KDK plane early. */
         ViewAreaModeListener listener = viewAreaModeListener;
@@ -312,6 +334,9 @@ public final class AltScreenModule implements Module, CarplayBus.Listener {
         boolean ownClusterMap;
         boolean rgi;
         boolean rgiQueued;
+        /* A MOST or RGI-only cluster has no altScreen takeover to publish: no hook RGI state and no
+         * NAVSD gate (its INITIALIZING deferral and scale hide serve plane 99). */
+        boolean altScreen = !ClusterPlatform.leavesContextsToStock();
         synchronized (LOCK) {
             boolean sessionActive = connected || videoAvailable;
             ownClusterMap = com.luka.carplay.connectivity.CarPlaySettingsUi.isAltScreenEnabled()
@@ -327,6 +352,7 @@ public final class AltScreenModule implements Module, CarplayBus.Listener {
             rgiQueued = sendRgiStateLocked();
             LOCK.notifyAll();
         }
+        if (!altScreen) return;
         Log.i(TAG, "rgi send active=" + rgi + " reason=republish queued=" + rgiQueued);
     }
 
@@ -356,6 +382,7 @@ public final class AltScreenModule implements Module, CarplayBus.Listener {
     /** Validate and publish together: stop() cannot fall between the epoch check
      * and the readiness write. Token zero is an unrequested/legacy snapshot. */
     static void applyRendererState(int epoch, boolean ready, boolean video) {
+        if (ClusterPlatform.leavesContextsToStock()) return;
         synchronized (LOCK) {
             if (!connected || epoch == 0 || epoch != rendererEpoch) return;
             rendererReady = ready;
@@ -379,11 +406,21 @@ public final class AltScreenModule implements Module, CarplayBus.Listener {
     /** Navigation owns the context; VC alone controls KDK opacity. On route end,
      * retain the composition until VC withdraws visibility, without a guessed timer. */
     public static void setNavActive(boolean active) {
+        boolean most;
         synchronized (LOCK) {
-            navHidePending = !active && navActive && ClusterLayerController.isKdkVisible();
+            /* the hold-until-VC-hides-KDK (Fct44) release exists only for the Virtual Cockpit
+             * composition; a MOST cluster never sends that hide, so it would never release. */
+            navHidePending = !ClusterPlatform.leavesContextsToStock()
+                && !active && navActive && ClusterLayerController.isKdkVisible();
             navActive = active || navHidePending;
+            most = !clusterContextsOwned && connected;
         }
         republish();
+        /* on a MOST cluster CarPlay route guidance takes the stock arrows view, and the MAP view
+         * while the phone's cluster stream is live. */
+        if (most && ClusterPlatform.isMost()) {
+            MostPresentation.setActive(isConnected() && navActive);
+        }
     }
 
     /** Called after the layer controller has applied the received Fct44 visibility.
@@ -420,6 +457,36 @@ public final class AltScreenModule implements Module, CarplayBus.Listener {
         }
         platformSupported = true;
         enabled = true;
+
+        ClusterPlatform.resolve(fw.framework());
+        if (!ClusterPlatform.ownsContexts(fw.framework())) {
+            /* MOST / RGI-only cluster.  Keep the session semantics other modules read
+             * (isConnected), but never drive terminal-1 contexts or rates from here: no
+             * connect-time switch, no ctx 80/81, no blocked stock switches, nothing to restore
+             * later, no hook view-area traffic or plane-99 NAVSD gate.  During CarPlay guidance
+             * MostPresentation substitutes stock's own arrows requests (context 73 -> 83, full
+             * rate 10 -> 30) and hands them back afterwards. */
+            clusterContextsOwned = false;
+            synchronized (LOCK) {
+                connected = true;
+                navActive = false;
+                navHidePending = false;
+                desiredCtx = CTX_STOCK_CLUSTER;
+            }
+            MostPresentation.setActive(false);
+            if (ClusterPlatform.isMost(fw.framework())) {
+                MostPresentation.prefetchExtents();
+                /* the phone's cluster stream takes the MAP view during CarPlay navigation. */
+                ClusterVideo.getInstance().start();
+            }
+            Log.w(TAG, "cluster contexts left to stock ("
+                + ClusterPlatform.describe(fw.framework()) + ")"
+                + (ClusterPlatform.isMost(fw.framework())
+                    ? "; CarPlay guidance uses the MOST arrows view" : ""));
+            ClusterStateTrace.dump("connect");
+            return true;
+        }
+        clusterContextsOwned = true;
 
         IDisplayManager d = null;
         try {
@@ -478,6 +545,21 @@ public final class AltScreenModule implements Module, CarplayBus.Listener {
     public void stop() {
         if (!enabled) return;
         enabled = false;
+        if (!clusterContextsOwned) {
+            /* the session left terminal 1 to stock (start()): nothing to restore, no worker,
+             * hook listener or video grace to unwind. */
+            synchronized (LOCK) {
+                connected = false;
+                navActive = false;
+                navHidePending = false;
+            }
+            republish();
+            MostPresentation.setActive(false);
+            MostPresentation.setNavigationOwner(0);
+            ClusterVideo.getInstance().stop();
+            ClusterStateTrace.dump("disconnect");
+            return;
+        }
         /* Disconnect: publish stock (74); the single persistent worker restores it.  We deliberately
          * do NOT kill the worker or null dm — the worker being the sole always-live DM writer is what
          * makes stale-worker races impossible (no per-session worker to outlive its session). */

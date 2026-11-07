@@ -24,6 +24,7 @@ public class Activator extends AbstractHMIActivator {
     }
 
     private static ToneModelBank newBank() {
+        if (!com.luka.carplay.core.Features.UPMIX) return new ToneModelBank();
         try {
             return SoundControlUi.newBank();
         } catch (Throwable t) {
@@ -33,10 +34,12 @@ public class Activator extends AbstractHMIActivator {
 
     protected synchronized AbstractScreenFactory getScreenFactory() {
         if (this.instance == null) {
+            if (com.luka.carplay.core.Features.UPMIX) {
             try {
                 this.instance = SoundControlUi.newFactory(this.getFramework());
             } catch (Throwable t) {
                 this.instance = null;
+            }
             }
             if (this.instance == null) {
                 this.instance = new ToneScreenFactory(this.getFramework());

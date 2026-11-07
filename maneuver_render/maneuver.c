@@ -2296,10 +2296,11 @@ static void draw_supplied_scene(const maneuver_state_t *s,float tx,float ty,floa
 }
 
 void maneuver_draw(const maneuver_state_t *s, const maneuver_state_t *next_state) {
+    render_select_mask_set(0);
     if (s->icon == ICON_NONE && next_state == NULL) {
         g_flag_active = 0;
         g_cached_state_valid = 0;
-        render_select_road_fbo(0);
+        render_select_mask_set(0);
         render_begin_outline_mask();
         render_end_outline_mask();
         render_composite();
@@ -2431,17 +2432,17 @@ void maneuver_draw(const maneuver_state_t *s, const maneuver_state_t *next_state
         if (combined) {
             float pp = spatial_xfade();
             float base_alpha = render_get_global_alpha();
-            render_select_road_fbo(0);
+            render_select_mask_set(0);
             render_set_global_alpha(base_alpha * (1.0f - pp));
             render_composite();
             render_reset_depth();
-            render_select_road_fbo(1);
+            render_select_mask_set(1);
             render_set_global_alpha(base_alpha * pp);
             render_composite();
-            render_select_road_fbo(0);
+            render_select_mask_set(0);
             render_set_global_alpha(base_alpha);
         } else {
-            render_select_road_fbo(0);
+            render_select_mask_set(0);
             render_composite();
         }
         /* Crossfade flags on cached frames (spatial) */
@@ -2487,7 +2488,7 @@ void maneuver_draw(const maneuver_state_t *s, const maneuver_state_t *next_state
     } while(0)
 
     /* Render current maneuver masks into FBO 0 (+ composite if not combined) */
-    render_select_road_fbo(0);
+    render_select_mask_set(0);
     if (combined) {
         g_masks_only_mode = 1;
         DISPATCH_DRAW(s);
@@ -2633,7 +2634,7 @@ void maneuver_draw(const maneuver_state_t *s, const maneuver_state_t *next_state
             float base_alpha = render_get_global_alpha();
 
             /* Pass 1: composite current maneuver roads (in FBO 0) fading out */
-            render_select_road_fbo(0);
+            render_select_mask_set(0);
             render_set_global_alpha(base_alpha * (1.0f - pp));
             render_composite();
 
@@ -2641,7 +2642,7 @@ void maneuver_draw(const maneuver_state_t *s, const maneuver_state_t *next_state
             render_reset_depth();
 
             /* Pass 2: draw next maneuver masks into FBO 1, composite fading in. */
-            render_select_road_fbo(1);
+            render_select_mask_set(1);
             g_masks_only_mode = 1;
             if(scene_supplied(next_state))draw_supplied_scene(next_state,tx,ty,cos_r,sin_r);
             else {
@@ -2654,7 +2655,7 @@ void maneuver_draw(const maneuver_state_t *s, const maneuver_state_t *next_state
             render_set_global_alpha(base_alpha * pp);
             render_composite();
 
-            render_select_road_fbo(0);
+            render_select_mask_set(0);
             render_set_global_alpha(base_alpha);
         }
 
