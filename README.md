@@ -1,369 +1,169 @@
-# MHI2Q CarPlay cluster integration
+# MHI2Q CarPlay Enhanced
 
-Bring CarPlay maps, turn-by-turn directions, calls and album art to your Audi Virtual Cockpit —
-the digital instrument panel behind the steering wheel. Cars with an external amplifier also
-get 5.1 surround sound.
+_The iPhone's own CarPlay map and turn-by-turn on the instrument cluster of an Audi with the MHI2Q head unit, including analogue clusters with a colour centre display (map-over-MOST)._
 
-This mod is for **Audi MHI2Q** infotainment systems. After installation, connect your iPhone by
-USB and use CarPlay as usual. See [compatibility and installation](#installation) before starting.
-
-**Use at your own risk.** This mod changes the MMI system software. The installer saves backups
-of the system files it replaces, but these do not guarantee recovery from a failed installation.
-The authors are not responsible for damage, bricked units or warranty issues.
-
-<a id="gallery"></a>
-
-## 🎨 Gallery
-
-**Virtual Cockpit: CarPlay map on the cluster, route guidance beside it**
-
-<p align="center">
-  <img src="assets/gallery/vc_rs4_night_nav.jpeg" width="39%" />
-  <img src="assets/gallery/maneuver_demo.gif" width="52%" />
-</p>
-<p align="center">
-  <img src="assets/gallery/vc_day_nav.jpeg" width="45%" />
-  <img src="assets/gallery/vc_night_nav.jpeg" width="45%" />
-</p>
-<p align="center">
-  <img src="assets/gallery/vc_full_map.jpeg" width="52%" />
-  <img src="assets/gallery/vc_lane_guidance.jpeg" width="39%" />
-</p>
-
-**Audi front PDC no longer hides CarPlay** · **Cover art on the cluster**
-
-<p align="center">
-  <img src="assets/gallery/pdc_over_carplay.jpeg" width="45%" />
-  <img src="assets/gallery/cover_art.jpeg" width="45%" />
-</p>
-
-**CarPlay calls on the cluster phone tab**
-
-<p align="center">
-  <img src="assets/gallery/vc_incoming_call.jpeg" width="31%" />
-  <img src="assets/gallery/vc_call_list.jpeg" width="28%" />
-  <img src="assets/gallery/vc_phone_favorites.jpeg" width="33%" />
-</p>
-
-**5.1 sound: CarPlay UpMix in the MMI · Spatial Audio from Apple Music**
-
-<p align="center">
-  <img src="assets/gallery/upmix_mmi_level.jpeg" width="55%" />
-  <img src="assets/gallery/spatial_audio_now_playing.jpeg" width="31%" />
-</p>
-
-**Head-up display**
-
-<p align="center">
-  <img src="assets/gallery/IMG_6302.jpeg" width="45%" />
-  <img src="assets/gallery/IMG_0599.jpeg" width="45%" />
-</p>
-
-<a id="contents"></a>
-
-## 📍 Contents
-
-- [Gallery](#gallery)
-- [Installation](#installation) · [Compatibility](#requirements) · [Uninstall](#uninstall)
-- [Features](#features) · [CarPlay settings](#mmi-settings)
-- [Troubleshooting and logs](#logging)
-- [Build from source](#build) · [Technical documentation](#documentation)
-- [Help wanted](#help-wanted) · [License](#license) · [References](#references)
-
-<a id="installation"></a>
-<a id="deployment"></a>
-
-## 📦 Installation
+A fork of [luka-dev/mib2q-carplay-rgi](https://github.com/luka-dev/mib2q-carplay-rgi), which
+does all of the Virtual Cockpit, route-guidance, hook and toolchain work. This fork adds the MOST
+cluster and builds its packages with
+[mib2q-carplay-enhanced-tooling](https://github.com/waterfalldev/mib2q-carplay-enhanced-tooling).
+Thanks to [Luka](https://github.com/luka-dev) for the project this is built on.
 
 > [!WARNING]
-> **UPDATE YOUR MMI SOFTWARE BEFORE INSTALLING THIS MOD.**
+> **Disclaimer:** Use at your own risk. These patches modify firmware binaries and system
+> configuration on your infotainment unit. The installer keeps a backup of every file it replaces,
+> but back up anything you change by hand as well. The authors are not responsible for any damage,
+> bricked units or warranty issues resulting from their use.
 >
-> Your MMI must already be running one of the latest versions, example listed below.
-> **Installing on older or unsupported software can brick the MMI** — it may stop at the Audi
-> logo and no longer start normally. Use the correct firmware for your unit and region.
->
-> The CarPlay installer does **not** update your MMI firmware. If it warns about an unsupported
-> version, stop and resolve that first. **Do not run it again to bypass the warning.**
->
-> Already stuck on the logo? Follow the [recovery guide](https://github.com/luka-dev/mib2q-carplay-rgi/issues/24#issuecomment-5849641990).
+> Update the unit to the latest firmware for your region **before** you install (US `P5087`, ER
+> `P5092`, CN `K1004`), and **roll back before** any later firmware update. A package built for another firmware can leave
+> the MMI on the Audi logo; the installer refuses one that does not match, but if you are ever stuck,
+> see the [recovery guide](https://github.com/luka-dev/mib2q-carplay-rgi/issues/24#issuecomment-5849641990).
 
-<a id="requirements"></a>
+> [!WARNING]
+> **Remove any other CarPlay cluster or AltScreen mod first** (MIBSI, the CarPlay AltScreen toolbox,
+> mibr and similar), with its own uninstaller or by reflashing the stock firmware. Only one mod can
+> own the cluster: another one takes the cluster video and rewrites the CarPlay configuration, and its
+> leftovers do the same (upstream issues
+> [#39](https://github.com/luka-dev/mib2q-carplay-rgi/issues/39),
+> [#53](https://github.com/luka-dev/mib2q-carplay-rgi/issues/53)).
 
-### Check compatibility first
+## What you get
 
-You need:
+Plug in the iPhone and start navigating in CarPlay; there is nothing to switch on.
 
-- An **Audi MHI2Q** infotainment system running one of the versions below. Check the full
-  software version in your MMI's version information screen; the car model alone is not enough.
-- **Audi Virtual Cockpit**, the fully digital instrument panel. Analog instruments are not supported.
-- An SD card with **M.I.B. (More Incredible Bash)** already set up, and access to the
-  **Green Engineering Menu (GEM)**. This guide starts from a working M.I.B. setup.
-- The prepared CarPlay installation archive (`install_*.zip`) from the
-  [Releases page](https://github.com/luka-dev/mib2q-carplay-rgi/releases).
-  Download it from the release's **Assets** section. The **Source code** ZIP is not an installation package.
+- **MOST clusters** (coding 541=1): the phone's own CarPlay map in the cluster's MAP view, zoomed with
+  the steering-wheel roller and following the cluster's Light / Dark / Automatic setting, and
+  CarPlay's next turn in the arrows view. Works with Apple Maps, Google Maps and Waze (Waze ignores
+  zoom and theme). Tested on MU1329.
+- **Everywhere:** CarPlay turn-by-turn, lane arrows and distance on the cluster and head-up display,
+  cover art on the cluster, the MMI touchpad moving the CarPlay focus, and parking views no longer
+  hiding CarPlay.
+- **Calls and car data:** CarPlay calls, recents, favourites and the phone's battery on the
+  cluster's phone tab; range, outside temperature and wheel speed sent to the phone. The Directory
+  uses Audi's stock contacts. Every CarPlay connection requests a fresh stock directory and
+  forces its list notification even when the count is unchanged; startup waits for Audi's
+  address-book readiness. CarPlay does not supply a separate contacts database.
+- **Siri and the phone app:** a short press of the wheel's voice button starts Siri, and opening
+  the phone app no longer stops at the "iPhone is in Apple CarPlay mode" popup.
+- **USB reconnect and reduced background work:** the installer prepares upstream's USB re-arm
+  and NCM recovery, the on-disk video-decoder queue reduction, and the MCD media-scanning
+  changes from verified stock files for the target firmware. Vehicle verification is pending.
+- **Virtual Cockpit** (541=2): upstream's cluster map and route text are built in, but this fork's
+  packages do not yet open the firewall port the map needs, so expect it not to appear. Untested.
 
-| Region | Supported MMI software versions |
-| --- | --- |
-| **US** — North America | `MHI2Q_US_AUG22_P5087`, `MHI2Q_US_AUG22_P5145` |
-| **ER** — Europe / rest of world | `MHI2Q_ER_AUG22_P5092`, `MHI2Q_ER_AUG22_P5152` |
-| **JP** — Japan | `MHI2Q_JP_AUG22_P1017` |
-| **CN** — China | `MHI2Q_CN_AUG22_K1004` |
+<a id="not-shipped"></a>Not included (upstream has them; off in this fork's builds): 5.1 surround
+and the UpMix setting, and wireless CarPlay ([details](docs/README.md#-this-fork)).
 
-**Sound system:** 5.1 sound and UpMix are supported on all external amplifiers used with these
-MHI2Q systems, including **B&O and Bose**. Cars using the MMI's built-in amplifier keep normal
-stereo sound; the map, calls and other cluster features are still available.
+## Install on the car
 
-**Other CarPlay mods:** uninstall any other CarPlay mods using their own uninstallers before
-proceeding. Conflicting mods can cause malfunctions or brick the MMI.
+You need a package for your firmware and an SD card with
+[M.I.B.](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash) set up on the unit. Ready-made
+packages are on the [Releases](https://github.com/waterfalldev/mib2q-carplay-enhanced-nonfpk/releases)
+page, one per firmware (so far MU1329, `MHI2Q_ER_AUG22_P5092`); for any other firmware,
+[create a package](#create-a-package).
 
-<a id="install-with-mib"></a>
+1. Unzip the release (or copy everything inside a built package's `sdcard/` folder) to the root
+   of the M.I.B. SD card, so the card holds `mod/`.
+2. Insert the card, **disconnect CarPlay**, then in the green engineering menu run
+   **M.I.B. â†’ Advanced Settings â†’ Run Custom Script** (older M.I.B. releases: **Run individual
+   script**).
+3. Wait for the result line at the end. `0` means installed. Wait a few seconds more, then
+   restart the head unit with CarPlay still disconnected.
+4. Connect the iPhone and start a route.
 
-### Install with M.I.B.
+The installer checks the firmware and every file before it writes anything, and keeps verified
+backups of what it changes. If you already have Luka's own release or M.I.B.'s NavActiveIgnore patch
+installed, remove that with its own uninstaller first; the installer stops if it finds either.
 
-If you have not set up M.I.B. yet, follow the instructions in the
-[M.I.B. GitHub repository](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash) first.
+**To remove it,** run the same menu entry again with the same card, then restart the head unit. The
+card remembers that the next run is a rollback; it saves the logs to the card first, then puts
+the original files back.
 
-1. **Unzip the installation package on your computer.**
-   Open the `install_MoreIncredibleBash` folder inside it.
+## Create a package
 
-2. **Copy its `mod` folder to your M.I.B. SD card.**
-   Put it at the top level of the card, alongside the existing `apps` and `esd` folders.
-   Merge the folders and replace matching files if asked. Keep all files inside `carplay` together.
+Packages are built on Windows by the
+[tooling repository](https://github.com/waterfalldev/mib2q-carplay-enhanced-tooling) from a commit of
+this one. You need PowerShell 7, Git (with Git Bash) and Docker Desktop.
 
-   ```text
-   M.I.B. SD card/
-   ├── apps/                 <- already on the card
-   ├── esd/                  <- already on the card
-   └── mod/
-       ├── custom.sh
-       ├── command.sh
-       └── carplay/          <- copy this folder with all its contents
+1. Build the QNX cross-compiler image once:
+
+   ```sh
+   git clone https://github.com/luka-dev/qnx65-armv7-toolchain
+   cd qnx65-armv7-toolchain
+   ./host-scripts/qnx-run.sh build
    ```
 
-   Check that `custom.sh` is directly inside `mod`. Do not put the outer
-   `install_MoreIncredibleBash` folder on the card.
+2. Clone this repository and the tooling repository side by side, and build the test image from
+   this one:
 
-3. **Disconnect your iPhone and insert the card into SD1.**
-   CarPlay must be disconnected while the installer runs.
-
-4. **Open the Green Engineering Menu and run the installer.**
-   Find the button combination for your car in the
-   [M.I.B. menu and reboot shortcuts](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash/wiki/%22hidden-menus%22---key-combinations).
-   Select **m.i.b. → Advanced Settings → Run Custom Script**.
-   On M.I.B. V3.7.1 and older, the same option is called **Run individual script**.
-
-5. **Wait for the completion message.**
-   The installer checks the files and saves backups before replacing system files.
-   At the end, it spends another 20 seconds saving changes. Wait until you see:
-
-   ```text
-   DONE (install). Reboot the HU to load.
+   ```sh
+   docker build --platform linux/amd64 -t carplay-rgi-host-tests:local -f tests/Dockerfile.host .
    ```
 
-   Here, **HU** means the MMI head unit. Do not restart it or remove the card while the
-   installer is still running. If it reports a failure, record the message and resolve it
-   before continuing.
+3. Prepare a firmware folder from your unit's stock firmware: `Firmware.psd1`, the reconstructed
+   `lsd.jar`, the original `lsd.jxe`, and byte-exact stock `smartphone_integrator.json` and
+   `dio_manager.json`. What goes in `Firmware.psd1`:
+   [inputs and build](https://github.com/waterfalldev/mib2q-carplay-enhanced-tooling/blob/main/docs/install-and-recovery.md#inputs-and-build).
+   Keep it outside both repositories; never use files from a modified unit. The USB and
+   performance changes also require seven stock runtime files and `RuntimeInputs.psd1`
+   (schema 1), created by the tooling's `packaging/Import-RuntimeInputs.ps1`; see the same
+   input guide for their exact names and identities.
 
-6. **Restart the MMI with the iPhone still disconnected.**
-   Use the **Reboot** combination for your car in the
-   [same shortcut table](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash/wiki/%22hidden-menus%22---key-combinations).
-   Once the MMI has fully started,
-   reconnect your iPhone.
+4. From the tooling repository:
 
-<a id="reboot-and-check"></a>
+   ```powershell
+   ./packaging/Build-Package.ps1 -SourceRepository <this-checkout> `
+       -FirmwareRoot <firmware-folder> -Dependencies <cache-folder> `
+       -WorkRoot <scratch-folder> -OutputRoot <packages-folder> -Ref HEAD -ToolingRef HEAD
+   ```
 
-### Check that it works
+All seven MU1329 stock runtime files have been imported and the USB, decoder and MCD patches
+were built in main17. Its vehicle capture still showed the empty cluster Directory; the later
+contacts change adds an explicit live refresh on reconnect. Source and host checks do not
+establish on-car acceptance.
 
-Open CarPlay and Apple Maps, then check the map in the Virtual Cockpit. Start a route to check
-the turn arrows and lane guidance. You can also check album art on the media tab and calls on
-the phone tab.
-
-To adjust the map, route guidance or audio, see [CarPlay settings](#mmi-settings).
-
-<a id="uninstall"></a>
-
-### Uninstall
-
-1. Disconnect your iPhone.
-2. Open `uninstall_MoreIncredibleBash` from the installation archive. Copy its `mod` folder
-   to the top level of the M.I.B. SD card, replacing `custom.sh` and `command.sh`.
-3. Insert the card into **SD1** and run **m.i.b. → Advanced Settings → Run Custom Script**
-   (or **Run individual script**) in the Green Engineering Menu.
-4. Wait for the saving step to finish and for `DONE (uninstall). Reboot the HU.` to appear.
-5. Restart the MMI.
-
-The uninstaller restores the saved system files and removes the files added by this mod.
-M.I.B.'s conflicting `NavActiveIgnore` add-on is removed during installation and is not restored
-by uninstalling. See the [installer details](docs/build-and-deploy/DEPLOY_AND_RELEASE.md#-the-mib-sd-install).
-
-<a id="features"></a>
-
-## 🎯 Features
-
-<a id="virtual-cockpit-and-hud"></a>
-
-### 🗺️ Maps and directions behind the steering wheel
-
-- **CarPlay map in the Virtual Cockpit.** See the map even when no route is active.
-  Classic, Sport and expanded map views are supported where available on your cluster.
-  Press **VIEW** to change the layout; use the steering-wheel map zoom roller to zoom in or out.
-- **Turn-by-turn directions.** See 3D turn arrows, roundabout exits, the distance to the next
-  turn and recommended lanes beside the map. The distance bar fills as you approach the turn.
-- **Road names and arrival time.** Long road names scroll. Press **OK** on the left
-  steering-wheel roller to switch between road information and arrival time / time remaining.
-- **Head-up display.** If your car has a HUD, turn arrows, lane guidance and distance also
-  appear on the windshield.
-- **Album art.** The Virtual Cockpit media tab shows the cover of the music playing in CarPlay.
-
-What appears depends on the navigation app and the information it sends. Apps that provide
-route guidance let the car draw its own turn arrows and lane guidance. Other apps may show
-their own directions inside the map instead. Waze does not provide native cluster/HUD guidance
-in the versions examined by this project; do not assume every app supports every feature.
-See [navigation app support](docs/cluster-and-rgi/THIRD_PARTY_NAV_APPS.md).
-
-The map requests up to **30 fps** for smoother movement. The actual rate depends on the iPhone,
-app and connection; a steady 30 fps on the car has not yet been confirmed.
-[Technical details](docs/altscreen-and-video/MAPS_30FPS_PROFILE.md).
-
-<a id="audio-and-upmix"></a>
-
-### 🔊 5.1 surround sound and UpMix
-
-These features work with **external amplifiers, including B&O and Bose**:
-
-- **Spatial Audio.** Supported Apple Music Spatial Audio / Dolby Atmos tracks play in 5.1,
-  with separate front, centre, rear and bass channels.
-- **UpMix for ordinary music.** Expands stereo music from apps such as Spotify and YouTube Music
-  into surround sound. Vocals stay focused at the front, while instruments and ambience can
-  extend behind you. Choose **Off**, **Normal** or **Intense** in CarPlay settings.
-- **Normal voice audio.** Calls, Siri and navigation prompts keep their normal voice playback.
-
-Cars with the MMI's built-in amplifier keep stereo audio, and the surround options are hidden
-automatically. There is no amplifier type to select during installation.
-
-On supported B&O systems, the **Sound effects** menu also offers a **Surround On/Off** switch
-and **AudioPilot** road-noise compensation. Amplifier sound controls differ between systems;
-B&O's surround bypass does not behave the same way on Bose.
-
-See [audio documentation](docs/audio/README.md) for the audio processing and
-[amplifier comparison](docs/audio/ODIS_AMP_MAPPING.md#external-amplifier-support) for compatibility details.
-
-<a id="calls-and-controls"></a>
-
-### 📞 Calls and everyday controls
-
-- **Calls on the Virtual Cockpit phone tab.** See the caller's name and number, call status,
-  timer, recent calls and favourites. Answer, reject or end calls from the steering wheel;
-  hold, mute, call waiting and keypad dialling are also available. Caller photos are not available.
-- **MMI touchpad navigation.** Swipe to move the selection through CarPlay lists and buttons.
-  Faster swipes move further.
-- **Siri with a short press.** Press the steering-wheel voice button briefly to open Siri
-  while CarPlay is connected. A long press still works.
-- **Parking sensors beside CarPlay.** The parking sensor display can appear alongside CarPlay
-  instead of covering the whole screen.
-- **Car information for the iPhone.** Sends wheel speed, remaining fuel range, outside temperature
-  and the low-fuel warning for apps that use them.
-- **Improved USB reconnection.** Includes fixes for CarPlay failing to reconnect after the
-  iPhone is unplugged and plugged back in.
-
-<a id="mmi-settings"></a>
-
-### ⚙️ CarPlay settings
-
-You can open these settings at any time, even when CarPlay is disconnected.
-Go to **Main Menu → Settings → Connection manager**, highlight **Audi smartphone interface**,
-push the rotary knob **to the right**, and select **CarPlay settings**.
-
-| Setting | What it does | When it takes effect |
-| --- | --- | --- |
-| **Spatial Audio** — On / Off | Enables 5.1 sound in supported apps. External amplifier required. | Reconnect the iPhone |
-| **UpMix** — Off / Normal / Intense | Sets how much surround sound is added to stereo music. External amplifier required. | Immediately |
-| **Maps on Cluster** — On / Off | Shows or hides the CarPlay map in the Virtual Cockpit. | Reconnect the iPhone |
-| **Maneuver Cards Position** — Left / Center / Right | Places the phone's turn cards and arrival time on the map. | Reconnect the iPhone |
-| **Route Guidance** — On / Off | Shows or hides the car's 3D turn arrows in the Virtual Cockpit and HUD. | Immediately |
-| **Map Cards during Guidance** — Hidden / Shown | Hides the phone's turn cards while the car shows its own guidance, or keeps both visible. | Immediately |
-| **Guidance Maneuver Preview** — Always next maneuver / Follow road when far | Shows the next turn early, or a straight-ahead arrow until you get closer. | Immediately |
+It builds everything in Docker, runs all the checks and writes
+`mib2q-carplay-enhanced_<firmware>_source_<commit>/` with the `sdcard/` folder to
+copy. That folder holds no personal data and can be shared with owners of the same firmware;
+keep the build log beside it to yourself, as it records your local paths.
 
 <a id="logging"></a>
 
-## 📝 Troubleshooting and logs
+## Logs
 
-If something goes wrong, include your full MMI software version, iPhone model, iOS version,
-navigation or music app, and the steps that caused the problem. For a wrong turn arrow,
-include what you expected to see and when it happened.
+Everything logs to `/tmp` on the unit (RAM, cleared on restart):
 
-You can collect diagnostic logs with M.I.B.; no terminal connection is needed:
-
-1. Copy the `mod` folder from `logging_MoreIncredibleBash` in this repository to the top level
-   of your M.I.B. SD card, replacing the previous scripts.
-2. Run it from the same Green Engineering Menu option used for installation.
-   This saves the current logs and turns on more detailed logging.
-3. Reconnect the iPhone and reproduce the problem.
-4. Run the logging script again **before restarting the MMI**. Restarting clears the session logs.
-5. Attach the newest numbered folder inside `carplay_logs` on the SD card to your bug report.
-
-For log files, SSH commands and diagnostic details, see
-[log collection](docs/build-and-deploy/DEPLOY_AND_RELEASE.md#collecting-logs) and
-[logging options](docs/build-and-deploy/BUILD_SYSTEM.md#logging-options).
-
-<a id="build"></a>
-<a id="manual-install"></a>
-<a id="repository-layout"></a>
-
-## 🔧 Build from source
-
-To compile your own installation package, start with the [Build System](docs/build-and-deploy/BUILD_SYSTEM.md)
-guide. For package contents and manual installation over SSH, see
-[Deploy and Release](docs/build-and-deploy/DEPLOY_AND_RELEASE.md).
-
-<a id="documentation"></a>
-
-## 📚 Technical documentation
-
-The guides in [`docs/`](docs/README.md) cover implementation, reverse engineering, test results
-and development work. Use the [full topic index](docs/README.md#notes-by-topic) or start here:
-
-| Topic | Guide |
+| File | From |
 | --- | --- |
-| Surround sound, UpMix and amplifiers | [Audio](docs/audio/README.md) |
-| Turn arrows, lanes, HUD and calls | [Cluster and route guidance](docs/cluster-and-rgi/README.md) |
-| Cluster maps, video and steering-wheel input | [AltScreen and video](docs/altscreen-and-video/README.md) |
-| USB connection and reconnection | [Connect and USB](docs/connect-and-usb/README.md) |
-| Emulators and test tools | [CarPlay laboratory](docs/carplay-lab/README.md) |
-| Building and installing packages | [Build and deploy](docs/build-and-deploy/README.md) |
-| How the components work together | [Architecture](docs/reference/ARCHITECTURE.md) |
+| `/tmp/carplay_hook.log` | the native hook in `dio_manager` |
+| `/tmp/carplay_java.log` | the Java patch |
+| `/tmp/maneuver_render.log` | the cluster renderer (and the MOST map decoder) |
+| `/tmp/carplay_wrapper.log` | startup and the renderer monitor |
 
-Before changing the code, read [known pitfalls](docs/LANDMINES.md).
+With a shell on the unit, `touch /mnt/app/carplay_verbose` turns on detailed logging from the next
+phone connection. Without one, a rollback is the only way to get the logs onto the card for now.
+When reporting a problem, include the log lines from the moment it happened.
 
-<a id="help-wanted"></a>
+## For developers
 
-## 🤝 Help wanted
+- Component builds and tests (no PowerShell needed): `./scripts/build_java.sh`,
+  `./scripts/build_hook.sh`, `./scripts/build_renderers.sh`, `./scripts/run_tests.sh`; inputs and
+  variants are in [Build System](docs/build-and-deploy/BUILD_SYSTEM.md).
+- What a package installs, and what upstream's installer did beyond it:
+  [Deploy and Release](docs/build-and-deploy/DEPLOY_AND_RELEASE.md).
+- All documentation: [docs/](docs/README.md). How the MOST cluster works:
+  [MOST Cluster](docs/cluster-and-rgi/MOST_CLUSTER.md) and
+  [MOST MAP view](docs/cluster-and-rgi/MOST_MAP_VIEW.md). Read [Landmines](docs/LANDMINES.md)
+  before changing a subsystem.
+- Changes to the Virtual Cockpit, audio and other upstream features are best sent
+  [upstream](https://github.com/luka-dev/mib2q-carplay-rgi).
 
-Bug reports, fixes, documentation improvements and test reports from other cars are welcome.
-Please include your MMI software version and sound system, and describe what worked or failed.
-The [log collection steps](#logging) help us investigate problems.
+## License
 
-<a id="license"></a>
+GPL-3.0-or-later ([LICENSE](LICENSE)). Stock firmware files, fonts and other third-party material
+keep their owners' terms ([NOTICE](NOTICE.md)).
 
-## 📄 License
-
-GNU General Public License v3.0 or later ([LICENSE](LICENSE)): use, change and share it, also
-commercially, as long as the source of what you distribute stays open under the same license and
-the copyright notices stay in place. Stock firmware files, jars, fonts and other third-party
-material in the repository keep their owners' terms; [NOTICE](NOTICE.md) lists them.
-
-<a id="references"></a>
-
-## 🔗 References
-
-Thanks for the prior work and knowledge that helped figure this out:
-
-- [EthanArbuckle/iPhone18-3_26.1_23B85_Restore](https://github.com/EthanArbuckle/iPhone18-3_26.1_23B85_Restore)
-- [adi961/mib2-android-auto-vc](https://github.com/adi961/mib2-android-auto-vc)
-- [OneB1t/VcMOSTRenderMqb](https://github.com/OneB1t/VcMOSTRenderMqb)
-- [@fifthBro](https://t.me/fifthBro)
-- [xPaiiN](https://github.com/xPaiiN) for telephony magic
-- [Matze89x](https://github.com/Matze89x) for actively testing experimental stuff
-- [chefranov](https://github.com/chefranov) for OPS background swap
-- thx to every contributor
-- and everyone who reported their bugs
+Thanks for prior work: [ludwig-v](https://github.com/ludwig-v/wireless-carplay-dongle-reverse-engineering),
+[EthanArbuckle](https://github.com/EthanArbuckle/iPhone18-3_26.1_23B85_Restore),
+[adi961](https://github.com/adi961/mib2-android-auto-vc), [@fifthBro](https://t.me/fifthBro) and
+[xPaiiN](https://github.com/xPaiiN) for telephony.

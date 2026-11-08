@@ -14,7 +14,7 @@ While CarPlay owns the iPhone, the cluster telephone tab behaves as it does with
 - recents and favorites, and dialling from them;
 - the missed-call indication, signal strength, register state and carrier name.
 
-The Directory (phonebook) has no CarPlay source and reports "no phonebook"; the HU phone app goes straight to CarPlay. Both are in [The HU phone app and the Directory](#-the-hu-phone-app-and-the-directory).
+The Directory (phonebook) keeps the stock address-book service's entries and updates; CarPlay supplies no separate contacts database. The HU phone app goes straight to CarPlay. Both are in [The HU phone app and the Directory](#-the-hu-phone-app-and-the-directory).
 
 A caller picture is not possible: iAP2 CallStateUpdate carries no image ([iAP2 Communications](IAP2_COMMUNICATIONS.md#-callstateupdate-0x4155-and-call-control)).
 
@@ -72,12 +72,13 @@ While on, it publishes the values below and caches stock's values for every func
 |---|---|
 | 14 | stock's setup with `mct = 3` (HFP) instead of 5 — the normal branch on the VC ([why](VC_TELEPHONE_TAB.md#-mobileconnectiontype-and-the-carplay-note)) |
 | 15 | Tel_State 15 (phone on, no SIM), privacy off |
-| 16 | CallState, CallInfo, CallDurationSync, DialNumber, HangupCall, AcceptCall, CallHold, ResumeCall, MicroMute, CombinedNumbers, FavoriteList, MissedCallIndication, RegisterState, NetworkProvider, SignalQuality |
+| 19 | LockState 0 (no lock). When the iPhone joined over Bluetooth before CarPlay and CarPlay then turned Bluetooth off, stock reports the departed phone as 8 "SIM not available" (`BAPPropertyTelLockState`, activation state 1). That value is held back. With it held and the lists, registration and signal all arriving, the MOST cluster still drew a "!" beside the phone icon, which a Bluetooth phone never shows (fork, 2026-10-20 logs). So the remaining status fields now match stock's HFP output too (FctID 16 and 18 below). The "!" still showed with those (2026-10-24); the likelier source is the missed-call indication (FctID 45 below). Not yet confirmed on the car |
+| 16 | CallState, CallInfo, CallDurationSync, DialNumber, HangupCall, AcceptCall, CallHold, ResumeCall, MicroMute, CombinedNumbers, FavoriteList, MissedCallIndication, RegisterState, LockState, NetworkProvider, SignalQuality. Stock declares RegisterState and LockState for every phone (`BAPPropertyTelMobileServiceSupport`) |
 | 22 / 23 / 24 | CarPlay's calls from `DSICarplay.updateCallState`: CONNECTING + incoming → 1 ringing, CONNECTING + outgoing → 3 dialing, ACTIVE → 2, HOLDING → 5, DISCONNECTED → idle slot. Options follow the state (ringing → accept, active → hold, held → resume). The name is blank when it equals the number. CallDurationSync = time since the call went active; the VC runs the timer |
 | 34 | the commanded mute state; resets when the last call ends |
-| 45 | missed calls at the top of recents (newest first) up to the first answered or dialed call and newer than the last VC reset: `missedCalls` = summed occurrences, `missedNumbers` = their count. The VC's reset stores the phone-clock time of the newest entry |
+| 45 | missed calls at the top of recents (newest first) up to the first answered or dialed call and newer than the last VC reset: `missedCalls` = summed occurrences, `missedNumbers` = their count. The VC's reset stores the phone-clock time of the newest entry. Only calls missed during the session count: the first complete list after the hook's empty Identify list is the baseline, as stock counts only calls missed while a Bluetooth phone is connected (`MissedCallIndicator`). Before this, an old missed call at the top of the iPhone's recents showed as new on every drive, because the reset time is lost at every start. That was the likely "!" beside the MOST cluster's phone icon (fork, 2026-10-24; not yet confirmed on the car) |
 | 49 / 60 | recents and favorites from the hook. Number = RemoteID, name = DisplayName, blanked when it is only a formatted number; recents type 1/2/3 → BAP received/dialed/missed |
-| 18 / 20 / 21 | register state (iAP2 2 → 2 searching, 3 → 3 denied, 4 → 1 registered, 5 → 4 roaming, else and airplane → 0), carrier name, signal (0..5 bars × 20 = the stock DSI percent scale) |
+| 18 / 20 / 21 | register state (iAP2 2 → 2 searching, 3 → 3 denied, 4 → 1 registered, 5 → 4 roaming, else and airplane → 0), carrier name, signal (0..5 bars × 20 = the stock DSI percent scale). RegisterState's packet data type is the car's own modem, as stock reads it (`getNadInstanceState()`): stock's last value, else 255 "unknown", which stock gives a Bluetooth phone. Never 0 "no data service" |
 
 ## 📲 Actions from the cluster
 
@@ -108,7 +109,7 @@ Mute is optimistic: a mute toggled on the phone is not read back, because stock'
 
 ## 📵 The HU phone app and the Directory
 
-Two stock surfaces had nothing sensible to show during CarPlay; both now use the stock's own states.
+The HU phone app goes straight to CarPlay, while the cluster Directory keeps Audi's stock address-book behavior.
 
 **The HU phone app skips its CarPlay popup.** With CarPlay active, stock `TelTerminalModeHandler` sets `SHOW_CAR_PLAY_DISCLAIMER_CHOICE` (301049) = 1, and every way into the phone app first chose the "Your iPhone is in Apple CarPlay mode" popup (state `telCarPlayDisclaimer_compound`, screen `TELINITPHONECARPLAY`). Its "Switch to Apple CarPlay" button only flips `SWITCH_TO_TERMINAL_MODE_CHOICE` (4095), which `SystemSMM` turns into event 2000 on any change (`ChangeMediator` 76), so the flip is safe even when CarPlay is already in front. The popup is chosen in two places, and both now press that button for the user (`CarPlayDisclaimerSkip`, with a one-second guard so one press never flips 4095 twice):
 
@@ -149,15 +150,25 @@ flowchart LR
 
 All five fire only while the phone app is entered or already in front; a CarPlay connect while another app is shown is postponed until the phone app is opened again (stock `ChangeMediator.postponedAction`). `checkGuard` has one caller, `AbstractStateMachine.determineTrgtState`, so it is never evaluated speculatively. One path is not covered: `SystemSMM` transition 833 (`REMOTE_HMI_SWITCHTOSERVICE`, a remote/online request for messaging) enters the popup without `PhoneSMM`. Checked on a single-view car only. `[decompile]`
 
-**The Directory reports "no phonebook".** CarPlay gives the car no contacts (iAP2 carries only recents and favorites), and the HU's own phonebook comes over BT PBAP, which is not connected during wired CarPlay. `GatedAddressBook` wraps the stock `CombiBAPServiceAddressBook` the same way `GatedPhoneService` wraps the phone service and switches with the same gate. `[code]` `[decompile]`
+**The Directory stays with Audi's address-book service.** iAP2 provides the recent-call and
+favorites lists used by `GatedPhoneService`; those are separate from the stock contacts
+shown by `CombiBAPServiceAddressBook`. `GatedAddressBook` forwards its support bits,
+phonebook state and entry count, download progress, list/detail responses, change
+notifications and speller results unchanged during CarPlay. A connection transition sends
+no synthetic phonebook state and replays no cached state. `[code]`
 
-| HU sends | A5 2018 VC draws (`hmi_app.elf`) |
-|---|---|
-| Stock during CarPlay: PbState 2, 0 entries | an empty list |
-| **Ours:** PbState 0 (no phonebook), support bit 52 kept | no list; message `0x19C`, most likely "not available" / "no entries" (text mapping not resolved) |
-| Alternative: MobileServiceSupport bit 52 = 0 | the Directory item disappears; the VC has no greyed state |
+Earlier versions deliberately published PbState 0 with zero entries during CarPlay. The
+activation was lost if the phone service registered before the address-book wrapper; on
+reconnect the existing wrapper applied it and hid the stock contacts. The v15 logs show
+12 recents arriving in both sessions, and a host reproduction using the shipping JAR
+confirmed the registration-order inconsistency. The fix removes the override instead of
+making both connections consistently empty. The captured logs omit the INFO address-book
+transitions, so the exact on-car callback order is inferred, not directly recorded.
 
-Stock sends support `(true, true, true)` itself when it binds the service (`CombiBAPServiceHandler.setCombiService`) and PbState 0 while the address book is not ready (`CombiADBStateHandler.computePbState`), so both values are states the VC already knows. On gate-off the wrapper replays stock's last PbState and support.
+`GatedAddressBookTest` checks both service-registration orders, initial connection,
+repeated setup, disconnect/reconnect, legitimate stock-empty states and all address-book
+callbacks. Existing phone status/missed-call checks remain separate. This does not create
+contacts when stock has none, and the new behavior still needs vehicle verification.
 
 ## 🪜 Status
 
@@ -169,7 +180,7 @@ Stock sends support `(true, true, true)` itself when it binds the service (`Comb
 | 3 | Accept, hangup, hold/resume, swap, dial | Implemented |
 | 4 | Recents and favorites, dial from a list | Implemented |
 | 5 | Mic mute, missed-call indication, signal, register state, carrier | Implemented |
-| 6 | Directory shows "no phonebook" instead of an empty list | Implemented, not verified on the car |
+| 6 | Preserve stock Directory entries and updates through CarPlay reconnect | Host regression passes; new package and vehicle verification pending |
 | 7 | HU phone app (TEL key, menu) goes straight to CarPlay: the stock "Your iPhone is in Apple CarPlay mode" popup is skipped by pressing its "Switch to Apple CarPlay" for the user: TEL key via `CarPlaySystemSMM` (system transition 833, patched system `Activator`), in-app entries via `CarPlayPhoneSMM` (patched phone-SM `Activator`) | First version (phone SM only) did not skip on TEL on the car; the system-SM fix was confirmed by the owner on 2026-10-10: TEL goes straight to CarPlay **[car]** |
 | – | Caller picture | Not possible over iAP2 |
 

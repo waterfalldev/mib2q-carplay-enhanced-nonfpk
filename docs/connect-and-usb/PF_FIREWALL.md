@@ -41,6 +41,8 @@ Stock `start_network()` in `startup.sh` literally runs `/armle/sbin/pfctl -ef /e
 
 ## ✅ How the installer applies it
 
+This is upstream's M.I.B. installer. This fork's tooling package does not widen the rule yet, so the Virtual Cockpit's stream on 6031 stays blocked with it ([Deploy and Release](../build-and-deploy/DEPLOY_AND_RELEASE.md#-not-installed)); the MOST MAP view does not need it.
+
 **[code]** The only CarPlay change is the `carplay0` inbound TCP rule: stock `port { …, 6030, … }` becomes `6030:6032` — 6031 altScreen, 6032 buffered audio (`deploy/pf/README.md:3-4`).
 
 | Piece | Path | Role |

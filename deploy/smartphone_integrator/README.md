@@ -57,15 +57,16 @@ Lifecycle semantics:
 
 - **PF ports (deploy prerequisite, no runtime logic):** altScreen needs carplay0 TCP 6031 and
   buffered audio uses TCP 6032 beside stock 6030. `SETMAGICCOOKIE` and buffered controls reuse the
-  existing RTSP connection, so 6033 is not needed. The single
-  [`M.I.B./SSH installer`](../../install_MoreIncredibleBash/mod/custom.sh) widens
-  `6030` to `6030:6032` in all four
+  existing RTSP connection, so 6033 is not needed. Upstream's single
+  [M.I.B./SSH installer](https://github.com/luka-dev/mib2q-carplay-rgi/blob/main/install_MoreIncredibleBash/mod/custom.sh)
+  widens `6030` to `6030:6032` in all four
   `/mnt/system/etc/pf*.conf` profiles (idempotent, `.stock` backup, `mount -uw` first). That is a real
   qnx6 flash partition (`/dev/fs0p1`); boot's `move_etc_to_ramdisk` copies it into the ramdisk
   `/etc`, so `start_network` loads the selected profile with all three ports and no runtime race. The
   wrapper does **no** firewall work — it assumes the port is open, exactly like it assumes the
   child JSON and the hook are installed. Reverted only by an OTA rewriting `fs0p1`; re-run the
-  installer. See `NCM_AND_FIREWALL_IDEAL_START.md`.
+  installer. See `NCM_AND_FIREWALL_IDEAL_START.md`. This fork's package does not make this
+  change yet ([Deploy and Release](../../docs/build-and-deploy/DEPLOY_AND_RELEASE.md#-not-installed)).
 - `carplay_startup.sh` performs only local file checks, an atomic owner-file
   publish, a monitor fork and immediate `exec dio_manager`; no `pidin`, network
   probe, renderer initialization or USB recovery runs in SI's startup path;
@@ -87,6 +88,8 @@ Lifecycle semantics:
   missing renderer is restarted, after a five-second backoff. Cold boot starts
   `altscreen_render`, then gives its EGL initialization a one-second head start
   before `maneuver_render` to avoid a dual Qualcomm `eglInitialize` burst;
+- on a map-over-MOST cluster (`/tmp/carplay_cluster_platform` reads `most`) the monitor never
+  starts `altscreen_render`: `maneuver_render` shows the phone's map in that same window 99;
 - external cleanup is identity-less (smartphone_integrator does not tell it which dio
   generation it runs for), so it does NOT create the global stop marker and does NOT
   stop renderers by the shared PID files — either could damage an already-started
