@@ -163,27 +163,67 @@ const void *CFPropertyListCreateData(const void *alloc, const void *p, long form
 }
 const void *CFRetain(const void *p) { return retain((obj *)p); }
 /* Stock's command sender: records the commands the module sends, in order. */
-#define SENT_MAX 64
+#define SENT_MAX 256
 static char g_sent_type[SENT_MAX][32], g_sent_uuid[SENT_MAX][64], g_sent_url[SENT_MAX][64];
 static int64_t g_sent_zoom[SENT_MAX];      /* zoomDirection, or -1 */
 static int g_sent_night[SENT_MAX];         /* nightMode: 1 true, 0 false, -1 absent */
+static int64_t g_sent_mode[SENT_MAX];      /* appearanceMode, or -1 */
 static int g_sent;
+static pthread_mutex_t g_send_test_lock = PTHREAD_MUTEX_INITIALIZER;
+static int g_send_status[SENT_MAX], g_reply_status[SENT_MAX], g_defer_reply[SENT_MAX];
+static void (*g_pending_done[SENT_MAX])(int, const void *, void *);
+static void *g_pending_context[SENT_MAX];
+
+static void send_result_at(int at, int sent_status, int reply_status, int defer) {
+    pthread_mutex_lock(&g_send_test_lock);
+    g_send_status[at] = sent_status;
+    g_reply_status[at] = reply_status;
+    g_defer_reply[at] = defer;
+    pthread_mutex_unlock(&g_send_test_lock);
+}
+
+static int answer_deferred(int at) {
+    void (*done)(int, const void *, void *);
+    void *context;
+    int status;
+    pthread_mutex_lock(&g_send_test_lock);
+    done = g_pending_done[at];
+    context = g_pending_context[at];
+    status = g_reply_status[at];
+    g_pending_done[at] = NULL;
+    pthread_mutex_unlock(&g_send_test_lock);
+    if (done) done(status, NULL, context);
+    return done != NULL;
+}
 static const char *text_at(const void *dict, const char *key) {
     const void *k = CFStringCreateWithCString(NULL, key, 0);
     obj *v = dict ? (obj *)CFDictionaryGetValue(dict, k) : NULL;
     CFRelease(k);
     return v && v->kind == K_STRING ? v->text : "";
 }
-/* The phone answers at once: status 0 and an empty reply. */
+/* Success normally answers synchronously.  A planned rejection has no callback; replies
+ * can also fail or be held until the test explicitly delivers them, in any order. */
 int AirPlayReceiverSessionSendCommand(void *session, const void *command,
                                       void (*done)(int, const void *, void *), void *context) {
     const void *k = CFStringCreateWithCString(NULL, "params", 0);
     const void *params = CFDictionaryGetValue(command, k);
+    int at = g_sent, sent_status = 0, reply_status = 0, defer = 0;
     (void)session;
-    if (done) {
+    pthread_mutex_lock(&g_send_test_lock);
+    if (at < SENT_MAX) {
+        sent_status = g_send_status[at];
+        reply_status = g_reply_status[at];
+        defer = g_defer_reply[at];
+        if (done && !sent_status && defer) {
+            g_pending_done[at] = done;
+            g_pending_context[at] = context;
+        }
+    }
+    pthread_mutex_unlock(&g_send_test_lock);
+    if (done && !sent_status && !defer) {
         const void *reply = CFDictionaryCreateMutable(NULL, 0, &kCFLDictionaryKeyCallBacksCFLTypes,
                                                       &kCFLDictionaryValueCallBacksCFLTypes);
-        done(0, reply, context);
+        done(reply_status, reply, context);
         CFRelease(reply);
     }
     CFRelease(k);
@@ -196,12 +236,16 @@ int AirPlayReceiverSessionSendCommand(void *session, const void *command,
         zoom = params ? (obj *)CFDictionaryGetValue(params, zk) : NULL;
         CFRelease(zk);
         g_sent_night[g_sent] = zoom == &g_true ? 1 : zoom == &g_false ? 0 : -1;
+        zk = CFStringCreateWithCString(NULL, "appearanceMode", 0);
+        zoom = params ? (obj *)CFDictionaryGetValue(params, zk) : NULL;
+        CFRelease(zk);
+        g_sent_mode[g_sent] = zoom && zoom->kind == K_NUMBER ? zoom->number : -1;
         snprintf(g_sent_uuid[g_sent], sizeof(g_sent_uuid[0]), "%s", text_at(params, "uuid"));
         snprintf(g_sent_url[g_sent], sizeof(g_sent_url[0]), "%s", text_at(params, "url"));
         snprintf(g_sent_type[g_sent], sizeof(g_sent_type[0]), "%s", text_at(command, "type"));
         ++g_sent;
     }
-    return 0;
+    return sent_status;
 }
 
 /* Stock's screen-key derivation and AES-CTR, faked: the derivation records its inputs, and the
@@ -789,26 +833,130 @@ static void night_mode(void) {
     usleep(50000);
     check(g_sent == sent, "no session held: the night mode is only kept");
     session = cluster_setup();
-    WAIT_WHILE(1000, g_sent < sent + 4);
-    check(g_sent == sent + 4 && strcmp(g_sent_type[sent], "showUI") == 0
+    WAIT_WHILE(1000, g_sent < sent + 5);
+    check(g_sent == sent + 5 && strcmp(g_sent_type[sent], "showUI") == 0
           && strcmp(g_sent_type[sent + 1], "setNightMode") == 0 && g_sent_night[sent + 1] == 0
           && strcmp(g_sent_type[sent + 2], "setNightMode") == 0 && g_sent_night[sent + 2] == 1
-          && strcmp(g_sent_uuid[sent + 2], ALT_DISPLAY_UUID) == 0 && strcmp(g_sent_type[sent + 3], "forceKeyFrame") == 0,
-          "the next showUI is followed by setNightMode false then true (a real switch) for the cluster "
-          "display, then forceKeyFrame");
+          && strcmp(g_sent_uuid[sent + 2], ALT_DISPLAY_UUID) == 0
+          && strcmp(g_sent_type[sent + 3], "mapAppearanceUpdate") == 0 && g_sent_mode[sent + 3] == 1
+          && strcmp(g_sent_uuid[sent + 3], ALT_DISPLAY_UUID) == 0 && strcmp(g_sent_type[sent + 4], "forceKeyFrame") == 0,
+          "the next showUI is followed by setNightMode false then true (a real switch) and the dark map "
+          "appearance for the cluster display, then forceKeyFrame");
     sent = g_sent;
     mmi_night(0);
-    WAIT_WHILE(1000, g_sent < sent + 2 || session->refs != 2);
-    check(g_sent == sent + 2 && strcmp(g_sent_type[sent], "setNightMode") == 0 && g_sent_night[sent] == 1
+    WAIT_WHILE(1000, g_sent < sent + 3 || session->refs != 2);
+    check(g_sent == sent + 3 && strcmp(g_sent_type[sent], "setNightMode") == 0 && g_sent_night[sent] == 1
           && strcmp(g_sent_type[sent + 1], "setNightMode") == 0 && g_sent_night[sent + 1] == 0
-          && strcmp(g_sent_uuid[sent + 1], ALT_DISPLAY_UUID) == 0 && session->refs == 2,
-          "a change while the session is held: setNightMode true then false at once (a real switch)");
+          && strcmp(g_sent_uuid[sent + 1], ALT_DISPLAY_UUID) == 0
+          && strcmp(g_sent_type[sent + 2], "mapAppearanceUpdate") == 0 && g_sent_mode[sent + 2] == 0
+          && session->refs == 2,
+          "a change while the session is held: setNightMode true then false at once (a real switch), "
+          "then the light map appearance");
     sent = g_sent;
     mmi_night(0);
     usleep(50000);
     check(g_sent == sent && session->refs == 2, "the night mode the display already shows is not sent again");
     most_map_module_def.airplay.on_teardown_final(session, NULL, 0);
     check(refs_become(session, 1), "the session goes as before: %d refs", session->refs);
+    CFRelease(session);
+    most_map_module_def.on_shutdown();
+}
+
+
+/* A wheel command is a worker barrier: it must follow exactly the expected theme batch.
+ * This also proves failed retries retain the opposite -> target -> appearance order. */
+static int theme_request(obj *session, int night, int count) {
+    int sent = g_sent, ok;
+    mmi_night(night);
+    wheel(1);
+    WAIT_WHILE(1000, g_sent < sent + count + 1 || session->refs != 2);
+    ok = g_sent == sent + count + 1
+         && strcmp(g_sent_type[sent + count], "changeMapZoomLevel") == 0;
+    if (count == 3) {
+        ok = ok && strcmp(g_sent_type[sent], "setNightMode") == 0 && g_sent_night[sent] == !night
+             && strcmp(g_sent_type[sent + 1], "setNightMode") == 0 && g_sent_night[sent + 1] == night
+             && strcmp(g_sent_type[sent + 2], "mapAppearanceUpdate") == 0 && g_sent_mode[sent + 2] == night
+             && strcmp(g_sent_uuid[sent], ALT_DISPLAY_UUID) == 0
+             && strcmp(g_sent_uuid[sent + 1], ALT_DISPLAY_UUID) == 0
+             && strcmp(g_sent_uuid[sent + 2], ALT_DISPLAY_UUID) == 0;
+    }
+    return ok && session->refs == 2;
+}
+
+static void night_mode_failures(void) {
+    obj *session;
+    int fd, kind, step, sent, night = 0;
+    most_map_module_def.on_init();
+    session = cluster_setup();              /* previous test left the MMI in day mode */
+    fd = connect_receiver();                /* keep the held session from expiring */
+    check(fd >= 0 && theme_request(session, 0, 0), "the successful setup theme is already cached");
+
+    for (kind = 0; kind < 2; ++kind) {
+        for (step = 0; step < 3; ++step) {
+            night = !night;
+            sent = g_sent;
+            send_result_at(sent + step, kind == 0 ? -6700 : 0, kind == 1 ? -6701 : 0, 0);
+            check(theme_request(session, night, 3), "%s failure at theme command %d keeps command order",
+                  kind == 0 ? "send" : "callback", step);
+            check(theme_request(session, night, 3), "the same theme retries after %s failure at command %d",
+                  kind == 0 ? "send" : "callback", step);
+            check(theme_request(session, night, 0), "successful retry at command %d is not sent again", step);
+        }
+    }
+
+    sent = g_sent;
+    send_result_at(sent + 1, -6700, 0, 0);
+    check(theme_request(session, 1, 3) && theme_request(session, 0, 3) && theme_request(session, 0, 0),
+          "a failed transition also invalidates the previously displayed theme");
+
+    sent = g_sent;
+    for (step = 0; step < 3; ++step) send_result_at(sent + step, 0, 0, 1);
+    check(theme_request(session, 1, 3), "an accepted theme may answer asynchronously");
+    check(answer_deferred(sent + 2) && answer_deferred(sent) && answer_deferred(sent + 1)
+          && theme_request(session, 1, 0), "out-of-order successful answers complete and cache the theme");
+
+    sent = g_sent;
+    send_result_at(sent + 1, 0, -6701, 1);
+    check(theme_request(session, 0, 3) && answer_deferred(sent + 1)
+          && theme_request(session, 0, 3) && theme_request(session, 0, 0),
+          "a delayed callback failure leaves the same theme retryable");
+
+    sent = g_sent;
+    send_result_at(sent + 2, 0, -6701, 1);
+    check(theme_request(session, 1, 3) && theme_request(session, 0, 3)
+          && answer_deferred(sent + 2) && theme_request(session, 0, 0),
+          "a stale failure cannot dirty a newer successful theme");
+
+    sent = g_sent;
+    for (step = 0; step < 3; ++step) send_result_at(sent + step, 0, 0, 1);
+    check(theme_request(session, 1, 3) && theme_request(session, 0, 3)
+          && answer_deferred(sent) && answer_deferred(sent + 1) && answer_deferred(sent + 2)
+          && theme_request(session, 0, 0), "stale successes cannot replace a newer successful theme");
+
+    sent = g_sent;
+    send_result_at(sent + 2, 0, 0, 1);
+    check(theme_request(session, 1, 3) && theme_request(session, 1, 3)
+          && answer_deferred(sent + 2) && theme_request(session, 1, 0),
+          "an unanswered theme stays dirty; the next request retries without an internal retry loop");
+
+    sent = g_sent;
+    for (step = 0; step < 3; ++step) send_result_at(sent + step, 0, 0, 1);
+    check(theme_request(session, 0, 3), "the old session can still have unanswered theme commands");
+    {
+        obj *old = session;
+        int old_fd = fd;
+        session = cluster_setup();
+        fd = connect_receiver();
+        check(fd >= 0 && refs_become(old, 1), "a replacement session releases the old one despite pending callbacks");
+        if (old_fd >= 0) close(old_fd);
+        CFRelease(old);
+    }
+    check(answer_deferred(sent) && answer_deferred(sent + 1) && answer_deferred(sent + 2)
+          && theme_request(session, 0, 0), "old-session callbacks cannot overwrite the replacement session's theme");
+
+    most_map_module_def.airplay.on_teardown_final(session, NULL, 0);
+    check(refs_become(session, 1), "theme callback tracking holds no extra session references");
+    if (fd >= 0) close(fd);
     CFRelease(session);
     most_map_module_def.on_shutdown();
 }
@@ -824,6 +972,7 @@ int main(void) {
     torn_down_session();
     wheel_zoom();
     night_mode();
+    night_mode_failures();
     check(g_live == live, "no CF object leaks: %d live", g_live - live);
     shm_unlink(CVR_SHM_NAME);
     printf("most_map_hook_test: %d checks, %d failures\n", checks, failures);

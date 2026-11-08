@@ -270,9 +270,81 @@ static void command_done(int status, cf_ref_t response, void *context) {
     (void)context;
 }
 
+/* Cache only a fully acknowledged theme.  Callback contexts are generation/step tokens,
+ * never borrowed session pointers or heap allocations: rejection may omit the callback and
+ * accepted commands may answer after a later batch or showUI.  One bounded attempt is kept;
+ * missing/failed answers stay dirty until the next ordinary appearance request. */
+static pthread_mutex_t g_theme_lock = PTHREAD_MUTEX_INITIALIZER;
+static void *g_shown_session, *g_theme_session;
+static int g_shown_night = -1, g_theme_night, g_theme_failed, g_theme_sending;
+static uintptr_t g_theme_serial, g_theme_generation;
+static unsigned g_theme_answered;
+
+static void theme_complete_locked(void) {
+    if (g_theme_generation && !g_theme_sending && !g_theme_failed && g_theme_answered == 7u) {
+        g_shown_session = g_theme_session;
+        g_shown_night = g_theme_night;
+    }
+}
+
+static void theme_done(int status, cf_ref_t response, void *context) {
+    uintptr_t token = (uintptr_t)context, generation = token >> 2;
+    unsigned step = (unsigned)(token & 3u);
+    (void)response;
+    LOG_WARN(LOG_MODULE, "cluster theme command %u answered: status %d", step, status);
+    pthread_mutex_lock(&g_theme_lock);
+    if (generation == g_theme_generation && step < 3) {
+        g_theme_answered |= 1u << step;
+        if (status) g_theme_failed = 1;
+        theme_complete_locked();
+    }
+    pthread_mutex_unlock(&g_theme_lock);
+}
+
+static void forget_theme(void) {
+    pthread_mutex_lock(&g_theme_lock);
+    g_theme_generation = 0;
+    g_shown_night = -1;
+    pthread_mutex_unlock(&g_theme_lock);
+}
+
+/* The generation also fences sessions; it is never reused, even if a session address is.
+ * If the token space is exhausted, sends continue without caching or callback state. */
+static int begin_theme(void *session, int night, uintptr_t *generation) {
+    int needed;
+    pthread_mutex_lock(&g_theme_lock);
+    needed = session != g_shown_session || night != g_shown_night;
+    if (needed) {
+        g_shown_night = -1;
+        g_theme_session = session;
+        g_theme_night = night;
+        g_theme_answered = 0;
+        g_theme_failed = 0;
+        g_theme_sending = 1;
+        g_theme_generation = g_theme_serial < (UINTPTR_MAX >> 2) ? ++g_theme_serial : 0;
+    }
+    *generation = g_theme_generation;
+    pthread_mutex_unlock(&g_theme_lock);
+    return needed;
+}
+
+static void finish_theme(uintptr_t generation, int accepted) {
+    pthread_mutex_lock(&g_theme_lock);
+    if (generation && generation == g_theme_generation) {
+        if (!accepted) g_theme_failed = 1;
+        g_theme_sending = 0;
+        theme_complete_locked();
+    }
+    pthread_mutex_unlock(&g_theme_lock);
+}
+
+static uintptr_t theme_context(uintptr_t generation, unsigned step) {
+    return generation ? (generation << 2) | step : 0;
+}
+
 /* `zoom_direction`, `night` < 0: none. */
-static void send_command(const cflite_t *cf, send_command_fn send, void *session, const char *type,
-                         const char *url, int zoom_direction, int night) {
+static int send_command(const cflite_t *cf, send_command_fn send, void *session, const char *type,
+                        const char *url, int zoom_direction, int night, uintptr_t theme) {
     cf_ref_t command = cf_dictionary(cf), params = cf_dictionary(cf);
     int status = -1;
     if (command && params) {
@@ -282,21 +354,45 @@ static void send_command(const cflite_t *cf, send_command_fn send, void *session
         if (night >= 0) cf_set(cf, params, "nightMode", night ? cf->boolean_true : cf->boolean_false);
         cf_set_cstring(cf, command, "type", type);
         cf_set(cf, command, "params", params);
-        status = send(session, command, command_done, (void *)type);
+        status = send(session, command, theme ? theme_done : command_done,
+                      theme ? (void *)theme : (void *)type);
     }
     LOG_WARN(LOG_MODULE, "%s for the cluster display sent (status %d)", type, status);
     (void)status;
     cf_release(cf, params);
     cf_release(cf, command);
+    return status;
 }
 
-/* The night mode the cluster display shows: the last one sent to it, in that session; -1 after
- * a showUI, whose new cluster UI has no known theme.  The commands worker's own. */
-static void *g_shown_session;
-static int g_shown_night = -1;
+/* At night the phone kept the cluster map dark although setNightMode for the cluster display said
+ * day (status 0) with the cluster set to Light.  mapAppearanceUpdate {uuid, appearanceMode,
+ * appearanceSetting}, which MHI3's libairplay 450 wraps (ALTSCREEN_RE_HISTORY), turned it light
+ * with appearanceMode 0, appearanceSetting 0 (car, 2026-10-24: the first of nine candidates).
+ * Night sends appearanceMode 1, inferred from 0 = light. */
+static int send_map_appearance(const cflite_t *cf, send_command_fn send, void *session, int night,
+                               uintptr_t theme) {
+    cf_ref_t command = cf_dictionary(cf), params = cf_dictionary(cf);
+    int status = -1;
+    if (command && params) {
+        cf_set_cstring(cf, params, "uuid", ALT_DISPLAY_UUID);
+        cf_set_int64(cf, params, "appearanceMode", night ? 1 : 0);
+        cf_set_int64(cf, params, "appearanceSetting", 0);
+        cf_set_cstring(cf, command, "type", "mapAppearanceUpdate");
+        cf_set(cf, command, "params", params);
+        status = send(session, command, theme ? theme_done : command_done,
+                      theme ? (void *)theme : (void *)"mapAppearanceUpdate");
+    }
+    LOG_WARN(LOG_MODULE, "mapAppearanceUpdate appearanceMode %d for the cluster display sent (status %d)",
+             night ? 1 : 0, status);
+    (void)status;
+    cf_release(cf, params);
+    cf_release(cf, command);
+    return status;
+}
 
 static void run_commands(const cflite_t *cf, send_command_fn send, const alt_commands_t *c) {
     int i, night = c->night;
+    uintptr_t generation;
     if (c->show_ui) {
         struct timespec delay = { ALT_SHOW_UI_DELAY_MS / 1000, (ALT_SHOW_UI_DELAY_MS % 1000) * 1000000L };
         while (nanosleep(&delay, &delay) != 0 && errno == EINTR) { }
@@ -305,26 +401,28 @@ static void run_commands(const cflite_t *cf, send_command_fn send, const alt_com
         LOG_WARN(LOG_MODULE, "cluster display commands not sent: AirPlayReceiverSessionSendCommand unresolved");
     } else {
         if (c->show_ui) {
-            send_command(cf, send, c->session, "showUI", ALT_DISPLAY_URL, -1, -1);
+            forget_theme();
+            send_command(cf, send, c->session, "showUI", ALT_DISPLAY_URL, -1, -1, 0);
             night = mmi_night();
-            g_shown_night = -1;
         }
-        if (night >= 0 && (c->session != g_shown_session || night != g_shown_night)) {
+        if (night >= 0 && begin_theme(c->session, night, &generation)) {
             /* The phone answered day mode with status 0 and kept the cluster map dark (map24):
              * a value it already holds is no change.  Stock's own setNightMode, without a uuid
              * on every MMI change, sets that value although the cluster map does not follow it
              * (map23).  So every change goes as a real switch: the opposite first, then the new
              * value.  A value the display already shows is not sent again. */
             struct timespec gap = { ALT_NIGHT_TOGGLE_MS / 1000, (ALT_NIGHT_TOGGLE_MS % 1000) * 1000000L };
-            send_command(cf, send, c->session, "setNightMode", NULL, -1, !night);
+            int accepted = send_command(cf, send, c->session, "setNightMode", NULL, -1, !night,
+                                        theme_context(generation, 0)) == 0;
             while (nanosleep(&gap, &gap) != 0 && errno == EINTR) { }
-            send_command(cf, send, c->session, "setNightMode", NULL, -1, night);
-            g_shown_session = c->session;
-            g_shown_night = night;
+            accepted &= send_command(cf, send, c->session, "setNightMode", NULL, -1, night,
+                                     theme_context(generation, 1)) == 0;
+            accepted &= send_map_appearance(cf, send, c->session, night, theme_context(generation, 2)) == 0;
+            finish_theme(generation, accepted);
         }
-        if (c->keyframe) send_command(cf, send, c->session, "forceKeyFrame", NULL, -1, -1);
+        if (c->keyframe) send_command(cf, send, c->session, "forceKeyFrame", NULL, -1, -1, 0);
         for (i = 0; i < (c->zoom < 0 ? -c->zoom : c->zoom); ++i)
-            send_command(cf, send, c->session, "changeMapZoomLevel", NULL, c->zoom > 0, -1);
+            send_command(cf, send, c->session, "changeMapZoomLevel", NULL, c->zoom > 0, -1, 0);
     }
 }
 
