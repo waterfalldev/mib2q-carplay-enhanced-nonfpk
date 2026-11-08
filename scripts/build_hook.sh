@@ -10,7 +10,7 @@
 #   ALTSCREEN_PACE_TRACE=1 ./scripts/build_hook.sh # stream-111 timing only
 #   LOG_RGD_PACKET_RAW=1 ./scripts/build_hook.sh   # raw RGD logging
 #   HOOK_AUDIO=1 ./scripts/build_hook.sh           # add upstream's type-103 audio module
-#   HOOK_PHONE_DATA=1 ./scripts/build_hook.sh      # add upstream's telephony and vehicle modules
+#   HOOK_PHONE_DATA=0 ./scripts/build_hook.sh      # leave out the telephony and vehicle modules
 set -e
 
 [ "$#" -eq 0 ] || { echo "usage: ./scripts/build_hook.sh"; exit 2; }

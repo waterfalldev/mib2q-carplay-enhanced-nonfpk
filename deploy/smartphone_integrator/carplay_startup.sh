@@ -71,9 +71,21 @@ export ALTSCREEN_ADVERT_DISPLAYS=1
 # (OmxVideoImpl::initialize); default 17.
 # export SCREEN_RECEIVER_THREAD_PRIO=32
 
-# Upstream's vehicle/phone data over iAP2 (IAP2_VEHICLE_*, IAP2_PHONE_BATTERY) and its 5.1 / upmix
-# audio (AUDIO_*) are not shipped in this fork: the hook is built with HOOK_PHONE_DATA=0 and
-# HOOK_AUDIO=0 (scripts/build_hook_common.sh), so neither module exists to read them.
+# Vehicle data to the phone and phone data to the cluster over iAP2 (docs/connect-and-usb/VEHICLE_DATA_TO_PHONE.md).
+# IAP2_VEHICLE_STATUS: VehicleStatusUpdate 0xA101 (range, outside temperature, low-range warning) plus the Identify
+#   components VehicleInformation (20) and VehicleStatus (21); needs the 0xA100-0xA102 IDs in dio_manager.json (package).
+# IAP2_VEHICLE_ENGINE: engine type advertised in VehicleInformationComponent: gasoline | diesel | electric | cng.
+# IAP2_VEHICLE_SPEED: $PASCD wheel-speed sentences (0xFFFB) once the phone asks for them; needs "nmea":"0x000B"
+#   in dio_manager.json (package) so dio advertises VehicleSpeedData.
+# IAP2_PHONE_BATTERY: iPhone battery and charging state (PowerUpdate 0xAE01) to the cluster phone tab.
+# Values are read by value (on/off), never by presence.
+export IAP2_VEHICLE_STATUS=on
+export IAP2_VEHICLE_ENGINE=gasoline
+export IAP2_VEHICLE_SPEED=on
+export IAP2_PHONE_BATTERY=on
+
+# Upstream's 5.1 / upmix audio (AUDIO_*) is not shipped in this fork: the hook is built with
+# HOOK_AUDIO=0 (scripts/build_hook_common.sh), so no module exists to read it.
 
 echo "[startup] exec dio_manager pid=$DIO_PID monitor=$MONITOR_PID" >> "$WLOG"
 exec "$DIODIR/dio_manager" "$@"
