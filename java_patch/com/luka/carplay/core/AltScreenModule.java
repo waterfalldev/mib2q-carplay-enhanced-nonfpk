@@ -441,6 +441,7 @@ public final class AltScreenModule implements Module, CarplayBus.Listener {
 
     /** Re-evaluate cluster ownership after a settings change. */
     public static void onSettingsChanged() {
+        if (ClusterPlatform.isMost()) MostPresentation.onSettingsChanged();
         republish();
         com.luka.carplay.cluster.ClusterLayerController.reapply();
     }

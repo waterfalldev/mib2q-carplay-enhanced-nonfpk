@@ -320,11 +320,65 @@ public final class MostMapViewTest {
         }
     }
 
+    private static void mapSetting() throws Exception {
+        try (Rig r=new Rig()) {
+            r.extents.put(Integer.valueOf(33),new int[]{800,298});
+            r.choose(72);
+            r.report("0800 0298 0000001234.0000000001\n");
+            com.luka.carplay.connectivity.CarPlaySettingsUi.selectAltScreen(0);
+            MostPresentation.setNavigationOwner(2);
+            com.luka.carplay.core.AltScreenModule.setNavActive(true);
+            MostPresentation.setMapLive(true);
+            Thread.sleep(200);
+            r.hmi.idle();
+            check(!MostPresentation.isMapActive() && r.requestText()==null,
+                "Maps off must keep Audi MAP during phone guidance and a live stream");
+            com.luka.carplay.connectivity.CarPlaySettingsUi.selectAltScreen(1);
+            check(MostArrowsTest.waitFor(r.dsi,"switch 82 term 4",3000L),
+                "Maps on must apply the current live MOST map without another phone event");
+            long arrowsDeadline=System.currentTimeMillis()+3000L;
+            while (!MostPresentation.isActive() && System.currentTimeMillis()<arrowsDeadline) Thread.sleep(20);
+            r.hmi.idle();
+            check(MostPresentation.isMapActive() && MostPresentation.isActive(),"both views active before maps toggle");
+            r.dsi.drain();
+            com.luka.carplay.connectivity.CarPlaySettingsUi.selectAltScreen(0);
+            r.hmi.idle();
+            List<String> off=r.dsi.drain();
+            check(off.contains("switch 72 term 4") && off.contains("opacity 99=0")
+                && off.indexOf("switch 72 term 4")<off.lastIndexOf("opacity 99=0"),
+                "Maps off restores Audi MAP before hiding the phone window: "+off);
+            check(!MostPresentation.isMapActive() && MostPresentation.isActive() && r.requestText()==null,
+                "Maps off releases only the MAP view and keeps guidance arrows");
+            MostPresentation.setMapLive(false);
+            MostPresentation.setNavigationOwner(0);
+            com.luka.carplay.core.AltScreenModule.setNavActive(false);
+            MostPresentation.setMapLive(true);
+            MostPresentation.setNavigationOwner(2);
+            r.hmi.idle();
+            check(!MostPresentation.isMapActive() && r.requestText()==null,
+                "live/owner events cannot undo maps off, including navigation without RGI");
+            com.luka.carplay.connectivity.CarPlaySettingsUi.selectAltScreen(1);
+            check(MostArrowsTest.waitFor(r.dsi,"switch 82 term 4",3000L),
+                "Maps on also restores phone navigation without route-guidance messages");
+            r.hmi.idle();
+            check(MostPresentation.isMapActive() && !MostPresentation.isActive(),
+                "map setting does not invent guidance arrows");
+        } finally {
+            setStatic(com.luka.carplay.connectivity.CarPlaySettingsUi.class,"currentAltScreen",Integer.valueOf(1));
+        }
+    }
+
     public static void main(String[] args) throws Exception {
+        if (args.length>0 && args[0].equals("settings")) {
+            mapSetting();
+            System.out.println("MostMapViewTest settings: PASS ("+checks+" checks)");
+            return;
+        }
         measuredConfirmedWindowOnly();
         placementAndWindowToken();
         viewsAreIndependent();
         phoneNavigationWithoutGuidance();
+        mapSetting();
         wheelZoom();
         clusterTheme();
         System.out.println("MostMapViewTest: measured, confirmed MAP window only, stock restoration, independent views, the navigation-and-stream rule, wheel zoom and the cluster theme PASS (" + checks + " checks)");

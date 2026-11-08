@@ -46,6 +46,7 @@
 package com.luka.carplay.cluster;
 
 import com.luka.carplay.framework.Log;
+import com.luka.carplay.connectivity.CarPlaySettingsUi;
 import de.audi.tghu.fwhmi.IDisplayManagerKombiControl;
 
 public final class MostPresentation {
@@ -245,8 +246,16 @@ public final class MostPresentation {
         }
     }
 
+    /** MMI map toggle: re-evaluate the current stream without waiting for phone events. */
+    public static void onSettingsChanged() {
+        synchronized (REQUESTS) {
+            setMapRequested(mapWanted());
+        }
+    }
+
     private static boolean mapWanted() {
-        return (guiding || navOwner == NAV_OWNER_PHONE) && mapLive;
+        return CarPlaySettingsUi.isAltScreenEnabled()
+            && (guiding || navOwner == NAV_OWNER_PHONE) && mapLive;
     }
 
     private static void setMapRequested(boolean on) {

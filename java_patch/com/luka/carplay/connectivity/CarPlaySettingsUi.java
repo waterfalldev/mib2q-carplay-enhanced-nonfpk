@@ -9,7 +9,9 @@
  *   6. CarPlay Map Cards  (2-choice: Hide when guiding | Always show -> KEY_ALT_URL 1003, alt_url=0|1, CMD_ALT_CFG)
  *   7. Turn Preview       (2-choice: Always next turn | Straight arrow when far -> KEY_RGI_FAR 1006, rgi_far=0|1)
  *   8. Cockpit Turn Card  (2-choice: Always visible | Auto-hide when far -> KEY_RGI_VC 1007, rgi_vc=0|1)
- * Each row carries a native MMI Infoline hint shown on focus.
+ * Audio rows are omitted when Features.UPMIX is off. Card layout/policy rows
+ * are omitted on MOST clusters, which render their map without the VC cards.
+ * Each visible row carries a native MMI Infoline hint shown on focus.
  *
  * Stored in the stock HMI persistence (IStorageAccess, namespace 1009) and flushed
  * to flash on every write through FlushValuesDict.register().
@@ -19,6 +21,8 @@
 package com.luka.carplay.connectivity;
 
 import com.luka.carplay.bus.CarplayBus;
+import com.luka.carplay.cluster.ClusterPlatform;
+import com.luka.carplay.core.Features;
 import com.luka.carplay.core.AltScreenModule;
 import com.luka.carplay.framework.Log;
 import com.luka.carplay.rgd.RouteGuidance;
@@ -943,23 +947,26 @@ public final class CarPlaySettingsUi {
 
             int pos = 0;
 
-            // Always retain the audio rows and their persisted values. Availability
-            // only controls native enabled state, never the screen's widget tree.
-            MenuItemController spatialItem = createCheckboxItem(terminal, MODEL_SPATIAL,
-                TEXT_SPATIAL, TEXT_SPATIAL_HINT, INTERNAL_ID_SPATIAL);
-            spatialItem.setEnabled(false);
-            registerScreenView(screen, MODEL_SPATIAL, spatialItem);
-            menu.addWithPosition(spatialItem, pos++);
-            spatialMenuItem = spatialItem;
+            // Disabled build features have no rows. Keep persisted models/values intact.
+            spatialMenuItem = null;
+            upmixMenuItem = null;
+            if (Features.UPMIX) {
+                MenuItemController spatialItem = createCheckboxItem(terminal, MODEL_SPATIAL,
+                    TEXT_SPATIAL, TEXT_SPATIAL_HINT, INTERNAL_ID_SPATIAL);
+                spatialItem.setEnabled(false);
+                registerScreenView(screen, MODEL_SPATIAL, spatialItem);
+                menu.addWithPosition(spatialItem, pos++);
+                spatialMenuItem = spatialItem;
 
-            // Row 2: UpMix (Off | Normal | Intense, external MOST amp only)
-            MenuItemController upmixItem = createComboItem(terminal, MODEL_UPMIX,
-                TEXT_UPMIX, new int[]{TEXT_UPMIX_OFF, TEXT_UPMIX_NORMAL, TEXT_UPMIX_INTENSE},
-                TEXT_UPMIX_HINT, INTERNAL_ID_UPMIX);
-            upmixItem.setEnabled(false);
-            registerScreenView(screen, MODEL_UPMIX, upmixItem);
-            menu.addWithPosition(upmixItem, pos++);
-            upmixMenuItem = upmixItem;
+                // Row 2: UpMix (Off | Normal | Intense, external MOST amp only)
+                MenuItemController upmixItem = createComboItem(terminal, MODEL_UPMIX,
+                    TEXT_UPMIX, new int[]{TEXT_UPMIX_OFF, TEXT_UPMIX_NORMAL, TEXT_UPMIX_INTENSE},
+                    TEXT_UPMIX_HINT, INTERNAL_ID_UPMIX);
+                upmixItem.setEnabled(false);
+                registerScreenView(screen, MODEL_UPMIX, upmixItem);
+                menu.addWithPosition(upmixItem, pos++);
+                upmixMenuItem = upmixItem;
+            }
 
             // Row 3: Maps on Cluster (checkbox)
             MenuItemController altScreenItem = createCheckboxItem(terminal, MODEL_ALTSCREEN,
@@ -967,13 +974,17 @@ public final class CarPlaySettingsUi {
             registerScreenView(screen, MODEL_ALTSCREEN, altScreenItem);
             menu.addWithPosition(altScreenItem, pos++);
 
-            // Row 4: Maneuver Cards Position (Left | Center | Right)
-            MenuItemController altLayoutItem = createComboItem(terminal, MODEL_ALT_LAYOUT,
-                TEXT_ALT_LAYOUT, new int[]{TEXT_ALT_LAYOUT_LEFT, TEXT_ALT_LAYOUT_CENTER, TEXT_ALT_LAYOUT_RIGHT},
-                TEXT_ALT_LAYOUT_HINT, INTERNAL_ID_ALT_LAYOUT);
-            registerScreenView(screen, MODEL_ALT_LAYOUT, altLayoutItem);
-            menu.addWithPosition(altLayoutItem, pos++);
-            altLayoutMenuItem = altLayoutItem;
+            boolean showMapCards = !ClusterPlatform.isMost(this.getFramework());
+            altLayoutMenuItem = null;
+            if (showMapCards) {
+                // Row 4: Maneuver Cards Position (Left | Center | Right)
+                MenuItemController altLayoutItem = createComboItem(terminal, MODEL_ALT_LAYOUT,
+                    TEXT_ALT_LAYOUT, new int[]{TEXT_ALT_LAYOUT_LEFT, TEXT_ALT_LAYOUT_CENTER, TEXT_ALT_LAYOUT_RIGHT},
+                    TEXT_ALT_LAYOUT_HINT, INTERNAL_ID_ALT_LAYOUT);
+                registerScreenView(screen, MODEL_ALT_LAYOUT, altLayoutItem);
+                menu.addWithPosition(altLayoutItem, pos++);
+                altLayoutMenuItem = altLayoutItem;
+            }
 
             // Row 5: Route Guidance (checkbox — unlocks rows 6..7)
             MenuItemController rgiEnabledItem = createCheckboxItem(terminal, MODEL_RGI_ENABLED,
@@ -981,13 +992,16 @@ public final class CarPlaySettingsUi {
             registerScreenView(screen, MODEL_RGI_ENABLED, rgiEnabledItem);
             menu.addWithPosition(rgiEnabledItem, pos++);
 
-            // Row 6: Map Cards during Guidance (Hidden | Shown)
-            MenuItemController altUrlItem = createComboItem(terminal, MODEL_ALT_URL,
-                TEXT_ALT_URL, new int[]{TEXT_ALT_URL_MAP_WHEN_RGI, TEXT_ALT_URL_CARDS_ALWAYS},
-                TEXT_ALT_URL_HINT, INTERNAL_ID_ALT_URL);
-            registerScreenView(screen, MODEL_ALT_URL, altUrlItem);
-            menu.addWithPosition(altUrlItem, pos++);
-            altUrlMenuItem = altUrlItem;
+            altUrlMenuItem = null;
+            if (showMapCards) {
+                // Row 6: Map Cards during Guidance (Hidden | Shown)
+                MenuItemController altUrlItem = createComboItem(terminal, MODEL_ALT_URL,
+                    TEXT_ALT_URL, new int[]{TEXT_ALT_URL_MAP_WHEN_RGI, TEXT_ALT_URL_CARDS_ALWAYS},
+                    TEXT_ALT_URL_HINT, INTERNAL_ID_ALT_URL);
+                registerScreenView(screen, MODEL_ALT_URL, altUrlItem);
+                menu.addWithPosition(altUrlItem, pos++);
+                altUrlMenuItem = altUrlItem;
+            }
 
             // Row 7: Guidance Maneuver Preview (Always next maneuver | Follow road when far)
             MenuItemController rgiFarItem = createComboItem(terminal, MODEL_RGI_FAR,

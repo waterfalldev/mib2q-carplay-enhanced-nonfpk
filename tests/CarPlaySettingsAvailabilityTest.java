@@ -29,6 +29,7 @@ public final class CarPlaySettingsAvailabilityTest {
     };
     static final List<RunnableEvent> events = new ArrayList<RunnableEvent>();
     static boolean onHmiThread;
+    static int mapMode = 1;
     static IFrameworkAccess framework;
     static ChoiceModel spatial, upmix;
     static void check(boolean b, String message) { if (!b) throw new AssertionError(message); }
@@ -61,6 +62,7 @@ public final class CarPlaySettingsAvailabilityTest {
         framework=proxy(IFrameworkAccess.class,(o,m,a)-> {
             if (m.getName().equals("getLogChannel")) return LOG;
             if (m.getName().equals("getHMIService")) return hmi;
+            if (m.getName().equals("getSysConst") && ((Integer)a[0]).intValue()==541) return mapMode;
             if (m.getName().equals("getLanguageMgr")) return proxy(de.audi.atip.i18n.ILanguageManager.class,(x,method,args)->
                 new de.audi.atip.i18n.Language(-1,"en_US","en","English",0,java.util.Locale.US));
             if (m.getReturnType()==int.class) return 1;
@@ -91,20 +93,40 @@ public final class CarPlaySettingsAvailabilityTest {
             ContainerController main=new ContainerController(); main.add(menu); screen.add(main,1);
             Object factory=CarPlaySettingsUi.newFactory(framework);
             invoke(factory,"buildCarPlaySettingsScreen",new Class[]{Screen.class,int.class},screen,0);
-            audio=(MenuItemController)screen.findViews(2500500)[0];
-            mix=(MenuItemController)screen.findViews(2500501)[0];
-            check(menu.getChildrenSize()==7,"all seven settings must exist for amp "+amp);
+            audio=row(CarPlaySettingsUi.MODEL_SPATIAL);
+            mix=row(CarPlaySettingsUi.MODEL_UPMIX);
             put(MenuController.class,menu,"focusedIndex",new MenuItemIndex(0,0));
         }
+        MenuItemController row(int id) {
+            de.audi.atip.hmi.view.HMIView[] views=screen.findViews(id);
+            return views==null || views.length==0 ? null : (MenuItemController)views[0];
+        }
         void verify(boolean enabled) throws Exception {
-            check(audio.isEnabled()==enabled && mix.isEnabled()==enabled,"wrong native enabled state");
-            check(menu.getChildrenSize()==7 && menu.getChild(0)==audio && menu.getChild(1)==mix,"rows removed/reordered");
-            check(audio.getParent()==menu && mix.getParent()==menu,"row detached");
+            List<Integer> ids=new ArrayList<Integer>();
+            if (com.luka.carplay.core.Features.UPMIX) {
+                ids.add(2500500); ids.add(2500501);
+                check(audio.isEnabled()==enabled && mix.isEnabled()==enabled,"wrong native audio enabled state");
+            } else {
+                check(audio==null && mix==null,"disabled build must not create audio rows or bindings");
+            }
+            ids.add(2500502);
+            if (mapMode!=1) ids.add(2500504);
+            ids.add(2500505);
+            if (mapMode!=1) ids.add(2500503);
+            ids.add(2500506);
+            check(menu.getChildrenSize()==ids.size(),"wrong settings count for cluster mode "+mapMode);
+            for(int i=0;i<ids.size();i++) {
+                MenuItemController item=row(ids.get(i));
+                check(item!=null && menu.getChild(i)==item && item.getParent()==menu,
+                    "wrong menu order or binding for model "+ids.get(i));
+            }
+            if (mapMode==1)
+                check(row(2500503)==null && row(2500504)==null,"MOST must hide both map card settings");
             check(menu.hasFocusedItem() && menu.getFocusedIndex().equals(new MenuItemIndex(0,0)),"focus lost");
-            check(screen.findViews(2500500)[0]==audio && screen.findViews(2500501)[0]==mix,"bindings changed");
-            check(spatial.getValue()==1 && upmix.getValue()==2,"saved values overwritten");
+            check(spatial.getValue()==1 && upmix.getValue()==2,"hidden/disabled audio saved values overwritten");
         }
     }
+
     static void notifyAmp(int amp) throws Exception {
         put(UI,null,"amplifier",amp);
         invoke(null,"requestAudioRowsEnabledState",new Class[0]);
@@ -117,9 +139,14 @@ public final class CarPlaySettingsAvailabilityTest {
     public static void main(String[] args) throws Exception {
         setup();
         // Early detection, including repeated screen construction, keeps the same models.
-        for(int amp:new int[]{-1,0,1,2,3,4,5,17,21}) new Fixture(amp).verify(com.luka.carplay.core.Features.UPMIX && amp>3);
+        for(int mode:new int[]{1,2}) {
+            mapMode=mode;
+            for(int amp:new int[]{-1,0,1,2,3,4,5,17,21})
+                new Fixture(amp).verify(com.luka.carplay.core.Features.UPMIX && amp>3);
+        }
+        mapMode=1;
         Fixture f=new Fixture(-1); f.verify(false);
-        notifyAmp(21); f.verify(false); check(events.size()==1,"callback bypassed HMI queue");
+        notifyAmp(21); f.verify(false); check(events.size()==(com.luka.carplay.core.Features.UPMIX ? 1 : 0),"hidden rows must not schedule callbacks; visible rows use HMI queue");
         drain(); f.verify(com.luka.carplay.core.Features.UPMIX);
         notifyAmp(3); f.verify(com.luka.carplay.core.Features.UPMIX); drain(); f.verify(false);
         // Stale queued notifications must not re-enable after an internal/unknown result.
@@ -134,6 +161,6 @@ public final class CarPlaySettingsAvailabilityTest {
         finally { onHmiThread=false; }
         new Fixture(3).verify(false);
         new Fixture(21).verify(com.luka.carplay.core.Features.UPMIX);
-        System.out.println("CarPlaySettingsAvailabilityTest: PASS (native disabled, saved values, stable focus/bindings, HMI queue, late/repeated detection)");
+        System.out.println("CarPlaySettingsAvailabilityTest: PASS (MOST/VC row visibility, disabled audio hidden, saved values, stable focus/bindings and amplifier callbacks)");
     }
 }
