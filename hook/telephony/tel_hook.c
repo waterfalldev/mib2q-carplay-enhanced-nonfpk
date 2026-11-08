@@ -54,6 +54,7 @@ static const uint16_t tel_msg_filter[] = { MSG_START_CALL_STATE, MSG_COMM_UPDATE
 
 static pthread_mutex_t tel_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool tel_lists_requested;        /* once per Identify cycle */
+static bool tel_lists_answered;         /* first ListUpdate of the cycle logged */
 static bool tel_power_requested;        /* once per Identify cycle */
 /* Extended StartPowerUpdates waiting for the phone's first PowerUpdate after stock's own. */
 static uint8_t tel_power_union[96];
@@ -360,6 +361,8 @@ static bool tel_on_message(hook_context_t* ctx, const iap2_frame_t* f) {
             pthread_mutex_lock(&tel_lock);
             tel_lists_requested = false;        /* next stock 0x4154 retries */
             pthread_mutex_unlock(&tel_lock);
+        } else {
+            LOG_WARN(LOG_MODULE, "stock StartCallStateUpdates: StartListUpdates queued");
         }
     } else if (ctx->direction == MSG_DIR_INCOMING && f->msgid == MSG_COMM_UPDATE) {
         tel_comm_t upd;
@@ -430,8 +433,14 @@ static bool tel_on_message(hook_context_t* ctx, const iap2_frame_t* f) {
         }
     } else if (ctx->direction == MSG_DIR_INCOMING && f->msgid == MSG_LIST_UPDATE) {
         static tel_lists_t upd;                 /* Cinemo's receive thread only */
+        bool first;
         if (tel_parse_list_update(f->payload, f->payload_len, &upd)) publish_lists(&upd);
         else LOG_WARN(LOG_MODULE, "malformed ListUpdate len=%u", (unsigned)f->payload_len);
+        pthread_mutex_lock(&tel_lock);
+        first = !tel_lists_answered;
+        tel_lists_answered = true;
+        pthread_mutex_unlock(&tel_lock);
+        if (first) LOG_WARN(LOG_MODULE, "first ListUpdate from the phone (len=%u)", (unsigned)f->payload_len);
     }
     return false;                               /* stock keeps every message */
 }
@@ -441,6 +450,7 @@ static void tel_on_state(hook_context_t* ctx, int event, void* data) {
     if (event == HOOK_EVENT_IDENTIFY_START || event == HOOK_EVENT_DISCONNECT) {
         pthread_mutex_lock(&tel_lock);
         tel_lists_requested = false;
+        tel_lists_answered = false;
         tel_power_requested = false;
         tel_power_union_len = 0;
         pthread_mutex_unlock(&tel_lock);

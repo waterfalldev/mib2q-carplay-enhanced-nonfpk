@@ -18,6 +18,8 @@ mkdir -p "$work/tools" "$JAVA_OUTPUT"
 javac -d "$work/tools" "$SOURCE_ROOT/scripts/java/PackageJar.java"
 framework=$CARPLAY_DEPENDENCIES/org.osgi.framework-1.10.0.jar
 tracker=$CARPLAY_DEPENDENCIES/org.osgi.util.tracker-1.5.4.jar
+asm_cp="$CARPLAY_DEPENDENCIES/asm-9.7.jar:$CARPLAY_DEPENDENCIES/asm-tree-9.7.jar"
+javac -cp "$asm_cp" -d "$work/tools" "$SOURCE_ROOT/tools/java/TransportDevicePatch.java" "$SOURCE_ROOT/tools/java/AddressBookPatch.java"
 resources="$SOURCE_ROOT/java_resources"
 [ -f "$resources/com/luka/carplay/rgd/vc-text.bin" ] || { echo 'Missing vc-text.bin' >&2; exit 1; }
 
@@ -53,6 +55,8 @@ build_variant() {
     javac -encoding UTF-8 -source 1.4 -target 1.4 "${bootargs[@]}" \
         -cp "$dir/stock.jar:$framework:$tracker" -sourcepath "$dir/generated:$dir/src" \
         -d "$dir/classes" -Xlint:-options @"$dir/sources.txt"
+    java -cp "$work/tools:$asm_cp" TransportDevicePatch "$dir/stock.jar" "$dir/classes"
+    java -cp "$work/tools:$asm_cp" AddressBookPatch "$dir/stock.jar" "$dir/classes"
     while IFS= read -r -d '' resource; do
         relative=${resource#"$resources/"}
         [[ "$relative" != *.class ]] && [ ! -e "$dir/classes/$relative" ] || { echo "Resource collides with compiled output: $relative" >&2; exit 1; }

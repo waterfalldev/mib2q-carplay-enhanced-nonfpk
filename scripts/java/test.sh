@@ -178,7 +178,8 @@ fi
 if [ "$want_transports" = 1 ]; then
     transport_plain=(TouchpadControllerTest com.luka.carplay.bus.CarplayBusTransportTest
         com.luka.carplay.rgd.RendererServerTransportTest)
-    transport_stock=(com.luka.carplay.core.VehicleDataEncodingTest com.luka.carplay.core.UpmixSettingTest)
+    transport_stock=(com.luka.carplay.core.VehicleDataEncodingTest com.luka.carplay.core.UpmixSettingTest
+        com.luka.carplay.telephony.GatedPhoneLockStateTest)
     sources_of "${transport_plain[@]}" com.luka.carplay.rgd.RendererRerouteTransportTest
     compile transport-plain "$PATCH_JAR" "${sources[@]}"
     plain=$COMPILED_DIR
@@ -189,7 +190,10 @@ if [ "$want_transports" = 1 ]; then
         queue "${main##*.}" "$plain:$PATCH_JAR" "$main" yes ''
     done
     for main in "${transport_stock[@]}"; do
-        queue "${main##*.}" "$stock_tests:$PATCH_JAR:$STOCK_JAR" "$main" yes ''
+        # This suite now exercises reconstructed Audi command/list bodies too.
+        verify=yes
+        [ "${main##*.}" != GatedAddressBookTest ] || verify=no
+        queue "${main##*.}" "$stock_tests:$PATCH_JAR:$STOCK_JAR" "$main" "$verify" ''
     done
     for ((v=0; v<${#vnames[@]}; v++)); do
         queue "RendererRerouteTransportTest (${vnames[$v]})" "$plain:${vpatch[$v]}:${vstock[$v]}" \
