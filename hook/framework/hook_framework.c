@@ -1363,7 +1363,8 @@ HOOK_EXPORT int mhi2q_wireless_iap2_nmea(const char *sentence,size_t length) {
     for(size_t i=1;i<length-3;++i){if((unsigned char)sentence[i]<32||(unsigned char)sentence[i]>126)return -1;checksum^=(unsigned char)sentence[i];}
     for(size_t i=length-2;i<length;++i) {
         unsigned c=(unsigned char)sentence[i],v=c>='0'&&c<='9'?c-'0':c>='A'&&c<='F'?c-'A'+10:16;
-        if(v>15)return -1;expected=expected*16+v;
+        if(v>15)return -1;
+        expected=expected*16+v;
     }
     if(checksum!=expected)return -1;
     unsigned type=!memcmp(sentence+3,"GGA,",4)?1:!memcmp(sentence+3,"RMC,",4)?2:0;

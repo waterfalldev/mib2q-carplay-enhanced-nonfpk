@@ -78,7 +78,7 @@ public final class AltScreenModule implements Module, CarplayBus.Listener {
     private static volatile boolean platformSupported = true;
     /* terminal-1 contexts are ours only on the Virtual Cockpit composition
      * (ClusterPlatform.ownsContexts).  Decided once per session in start(). */
-    private static volatile boolean clusterContextsOwned = false;
+    private static volatile boolean clusterContextsOwned = true;
     private boolean enabled;
 
     /**
@@ -97,7 +97,7 @@ public final class AltScreenModule implements Module, CarplayBus.Listener {
      * even if the bus is momentarily reconnecting.
      */
     public static boolean consumeSteeringWheelScale(int steps) {
-        if (!isClusterMapActive()) return false;
+        if (!isAltScreenCluster() || !isClusterMapActive()) return false;
 
         if (steps != 0) {
             if (steps > 127) steps = 127;
@@ -349,7 +349,7 @@ public final class AltScreenModule implements Module, CarplayBus.Listener {
                 desiredCtx = navActive ? CTX_CLUSTER_STOCK_MAP_NAV : CTX_STOCK_CLUSTER;
             }
             rgi = ownClusterMap && navActive;
-            rgiQueued = sendRgiStateLocked();
+            rgiQueued = altScreen && sendRgiStateLocked();
             LOCK.notifyAll();
         }
         if (!altScreen) return;

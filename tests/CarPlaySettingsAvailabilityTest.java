@@ -117,23 +117,23 @@ public final class CarPlaySettingsAvailabilityTest {
     public static void main(String[] args) throws Exception {
         setup();
         // Early detection, including repeated screen construction, keeps the same models.
-        for(int amp:new int[]{-1,0,1,2,3,4,5,17,21}) new Fixture(amp).verify(amp>3);
+        for(int amp:new int[]{-1,0,1,2,3,4,5,17,21}) new Fixture(amp).verify(com.luka.carplay.core.Features.UPMIX && amp>3);
         Fixture f=new Fixture(-1); f.verify(false);
         notifyAmp(21); f.verify(false); check(events.size()==1,"callback bypassed HMI queue");
-        drain(); f.verify(true);
-        notifyAmp(3); f.verify(true); drain(); f.verify(false);
+        drain(); f.verify(com.luka.carplay.core.Features.UPMIX);
+        notifyAmp(3); f.verify(com.luka.carplay.core.Features.UPMIX); drain(); f.verify(false);
         // Stale queued notifications must not re-enable after an internal/unknown result.
         notifyAmp(21); notifyAmp(-1); drain(); f.verify(false);
-        notifyAmp(3); notifyAmp(21); drain(); f.verify(true);
+        notifyAmp(3); notifyAmp(21); drain(); f.verify(com.luka.carplay.core.Features.UPMIX);
         // Native disabled state must also reject a selection already queued before disable.
         notifyAmp(3);
         spatial.itemSelected(0,0); upmix.itemSelected(0,0);
         drain(); f.verify(false);
         onHmiThread=true;
-        try { notifyAmp(21); check(events.isEmpty(),"HMI callback unnecessarily queued"); f.verify(true); }
+        try { notifyAmp(21); check(events.isEmpty(),"HMI callback unnecessarily queued"); f.verify(com.luka.carplay.core.Features.UPMIX); }
         finally { onHmiThread=false; }
         new Fixture(3).verify(false);
-        new Fixture(21).verify(true);
+        new Fixture(21).verify(com.luka.carplay.core.Features.UPMIX);
         System.out.println("CarPlaySettingsAvailabilityTest: PASS (native disabled, saved values, stable focus/bindings, HMI queue, late/repeated detection)");
     }
 }

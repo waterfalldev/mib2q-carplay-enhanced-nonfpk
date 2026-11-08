@@ -122,15 +122,11 @@ static route_path_t g_route_path;
 static route_mesh_t g_route_mesh;
 static route_mesh_t g_route_tail_mesh;
 static maneuver_scene_provider_t g_scene_provider;
-static int g_cached_state_valid = 0;
-static int g_cached_combined = 0;
-static maneuver_state_t g_cached_s;
-static maneuver_state_t g_cached_next;
 
 void maneuver_set_scene_provider(const maneuver_scene_provider_t *provider) {
     if(provider && provider->build_route && provider->paint_masks)g_scene_provider=*provider;
     else memset(&g_scene_provider,0,sizeof(g_scene_provider));
-    g_cached_state_valid = 0;
+
     render_invalidate_masks();
 }
 static int scene_supplied(const maneuver_state_t *state) {
@@ -201,7 +197,7 @@ static int   g_camera_prepared_this_frame = 0;
 
 static void clear_combined_transition(void) {
     if (g_combined_window_active || g_slug_override > 0.0f)
-        g_cached_state_valid = 0;
+
     g_slug_override = -1.0f;
     g_combined_window_active = 0;
     g_combined_start_tail_dist = 0.0f;
@@ -2299,7 +2295,7 @@ void maneuver_draw(const maneuver_state_t *s, const maneuver_state_t *next_state
     render_select_mask_set(0);
     if (s->icon == ICON_NONE && next_state == NULL) {
         g_flag_active = 0;
-        g_cached_state_valid = 0;
+
         render_select_mask_set(0);
         render_begin_outline_mask();
         render_end_outline_mask();
@@ -2337,20 +2333,9 @@ void maneuver_draw(const maneuver_state_t *s, const maneuver_state_t *next_state
     /* Combined path: when pushing with a known next maneuver, build joined route
      * after the draw_* pass so arrow slides continuously between maneuvers. */
     int combined = (next_state != NULL && maneuver_is_pushing());
+    int current_painted = combined && render_masks_dirty();
     if (!combined)
         g_combined_window_active = 0;
-
-    if (!g_cached_state_valid
-            || g_cached_combined != combined
-            || memcmp(&g_cached_s, s, sizeof(*s)) != 0
-            || (combined && memcmp(&g_cached_next, next_state, sizeof(*next_state)) != 0)) {
-        render_invalidate_masks();
-        g_cached_state_valid = 1;
-        g_cached_combined = combined;
-        g_cached_s = *s;
-        if (combined)
-            g_cached_next = *next_state;
-    }
 
     if (!combined) {
         if (!g_camera_prepared_this_frame) {
@@ -2400,66 +2385,20 @@ void maneuver_draw(const maneuver_state_t *s, const maneuver_state_t *next_state
 
     /* If masks are cached and still valid, just re-composite + rebuild mesh at current slide
      * (handles perspective animation and route animation without re-rendering masks) */
-    if (!render_masks_dirty()) {
+    if (!combined && !render_masks_dirty()) {
         compute_slide_params();
-        if (combined) {
-            rpath_set_ramp_restart(g_slug_override + 2.0f * ROUTE_EXTEND);
-            rpath_set_elevation(maneuver_elevation(s), maneuver_elevation(next_state));
-            update_combined_camera();
-        }
-        /* Update tip_blend on cached frames:
-         * - Pushing FROM ARRIVED: reverse morph bulb→arrow (1→0)
-         * - Settled ARRIVED: forward morph via g_tip_morph_t */
-        if (combined && s->icon == ICON_ARRIVED) {
-            float range = g_anim_target - g_anim_start;
-            float progress = (range > 0.01f) ? (g_route_slide - g_anim_start) / range : 1.0f;
-            if (progress < 0.0f) progress = 0.0f;
-            if (progress > 1.0f) progress = 1.0f;
-            /* Morph out in first 40% of push (synced with morph-in timing) */
-            float morph_out = (progress < 0.4f) ? (1.0f - progress / 0.4f) : 0.0f;
-            g_route_path.tip_blend = morph_out;
-            g_route_path.bulb_radius = ARRIVE_INNER_R - OL_W;
-        } else if (s->icon == ICON_ARRIVED) {
+        /* Only a settled maneuver enters this path; pushes use the two mask sets below. */
+        if (s->icon == ICON_ARRIVED)
             g_route_path.tip_blend = g_tip_morph_t;
-        }
         if (!g_combined_window_active
                 && (g_route_animating || g_route_slide != 1.0f
                     || (g_tip_morph_active && g_tip_morph_t < 1.0f))) {
-            /* Rebuild mesh at current slide (path segments still cached in g_route_path) */
             route_extrude_body();
         }
-        /* Composite with road fade during push (spatial crossfade using cached FBO 0 and FBO 1) */
-        if (combined) {
-            float pp = spatial_xfade();
-            float base_alpha = render_get_global_alpha();
-            render_select_mask_set(0);
-            render_set_global_alpha(base_alpha * (1.0f - pp));
-            render_composite();
-            render_reset_depth();
-            render_select_mask_set(1);
-            render_set_global_alpha(base_alpha * pp);
-            render_composite();
-            render_select_mask_set(0);
-            render_set_global_alpha(base_alpha);
-        } else {
-            render_select_mask_set(0);
-            render_composite();
-        }
-        /* Crossfade flags on cached frames (spatial) */
-        if (s->icon == ICON_ARRIVED || (combined && next_state != NULL && next_state->icon == ICON_ARRIVED)) {
-            float pp = combined ? spatial_xfade() : 0.0f;
-            float ba = render_get_global_alpha();
-            if (s->icon == ICON_ARRIVED) {
-                render_set_global_alpha(ba * (1.0f - pp));
-                render_sprite_flag(g_arrive_flag_dx, g_arrive_flag_dy, ARRIVE_FLAG_SZ, (int)g_flag_frame);
-            }
-            if (combined && next_state != NULL && next_state->icon == ICON_ARRIVED) {
-                render_set_global_alpha(ba * pp);
-                render_sprite_flag(g_combined_flag_x, g_combined_flag_y, ARRIVE_FLAG_SZ,
-                                   (int)g_flag_frame);
-            }
-            render_set_global_alpha(ba);
-        }
+        render_select_mask_set(0);
+        render_composite();
+        if (s->icon == ICON_ARRIVED)
+            render_sprite_flag(g_arrive_flag_dx, g_arrive_flag_dy, ARRIVE_FLAG_SZ, (int)g_flag_frame);
         route_draw_with_fade();
         if (g_route_debug)
             rpath_draw_debug(&g_route_path, g_t_tail, g_t_head);
@@ -2643,6 +2582,8 @@ void maneuver_draw(const maneuver_state_t *s, const maneuver_state_t *next_state
 
             /* Pass 2: draw next maneuver masks into FBO 1, composite fading in. */
             render_select_mask_set(1);
+            // Defer the hidden next set when this frame already painted the current set.
+            if (current_painted && pp <= 0.0f) render_hold_mask_set();
             g_masks_only_mode = 1;
             if(scene_supplied(next_state))draw_supplied_scene(next_state,tx,ty,cos_r,sin_r);
             else {

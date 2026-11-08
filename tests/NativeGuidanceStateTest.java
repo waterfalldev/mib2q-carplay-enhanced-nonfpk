@@ -61,8 +61,12 @@ public final class NativeGuidanceStateTest {
     /** Stock view-mode machine with the HMI-model side cut off; records what ClusterService feeds it. */
     public static final class View extends ClusterViewMode {
         Boolean lastRgiValid;
+        DSIResponseContainer stateMonitor;
         View() { super(null, null); }
-        public void setRGIValid(boolean valid) { lastRgiValid = Boolean.valueOf(valid); }
+        public void setRGIValid(boolean valid) {
+            if (stateMonitor != null) check(!Thread.holdsLock(stateMonitor), "HMI callbacks run outside guidance state monitor");
+            lastRgiValid = Boolean.valueOf(valid);
+        }
         public void refreshRGState() { }
     }
 
@@ -128,7 +132,7 @@ public final class NativeGuidanceStateTest {
         r = new Rig(kombiMapMode);
         r.dsiReportsRgActive(false);
         r.carPlay(true);
-        check(r.rgiValid() && r.container.isRgActive(), "CarPlay RGI claims validity without a native route");
+        check(r.rgiValid() && r.container.isRgActive() == (kombiMapMode != 2), "CarPlay RGI claims validity without persisting a phantom VC route");
         r.carPlay(false);
         check(!r.container.isRgActive() && !r.rgiValid(), "idle navigator gets its honest false back");
 
@@ -147,7 +151,7 @@ public final class NativeGuidanceStateTest {
         r = new Rig(kombiMapMode);
         r.carPlay(true);
         r.dsiReportsRgActive(false);
-        check(r.container.isRgActive() && r.rgiValid(), "a late navigator 'no route' leaves CarPlay's RGI valid");
+        check(r.container.isRgActive() == (kombiMapMode != 2) && r.rgiValid(), "a late navigator 'no route' leaves CarPlay's RGI valid");
         r.carPlay(false);
         check(!r.container.isRgActive() && !r.rgiValid(), "the release hands back the navigator's no route");
 
@@ -159,9 +163,53 @@ public final class NativeGuidanceStateTest {
         check(r.container.isRgActive() && r.rgiValid() && r.stockRgiDataValid(), "stray release leaves stock untouched");
     }
 
+    /** Freeze the exact held-write interleaving, without timing-dependent sleeps.  In the
+     * old code the worker read the claim and set dsiNoRouteHeld, then blocked entering the
+     * synchronized container setter.  A reentrant release completed first; the worker later
+     * wrote true and left an idle navigator with phantom rgActive after release. */
+    static void delayedHeldWriteCannotOutliveRelease(int kombiMapMode) throws Exception {
+        final Rig r = new Rig(kombiMapMode);
+        r.carPlay(true);
+        final Throwable[] failure = new Throwable[1];
+        Thread worker = new Thread(new Runnable() {
+            public void run() {
+                try { r.service.updateRgActive(false); }
+                catch (NullPointerException hostOnlyStockTail) { }
+                catch (Throwable t) { failure[0] = t; }
+            }
+        }, "delayed-dsi-rg-active");
+        worker.setDaemon(true);
+        synchronized (r.container) {
+            /* The DSI handler already made this write before ClusterService is called. */
+            r.container.setRgActive(false);
+            worker.start();
+            long deadline = System.nanoTime() + 2000000000L;
+            while (worker.getState() != Thread.State.BLOCKED && worker.isAlive()
+                    && System.nanoTime() < deadline) Thread.yield();
+            check(worker.getState() == Thread.State.BLOCKED, "DSI worker reaches the blocked container state operation");
+            r.carPlay(false);
+            check(!r.container.isRgActive(), "release completes with the real no-route state");
+        }
+        worker.join(2000L);
+        check(!worker.isAlive() && failure[0] == null, "delayed DSI worker completes after release");
+        check(!r.container.isRgActive() && !r.rgiValid(), "delayed held write cannot resurrect released rgActive");
+        check(!((Boolean) get(r.service, "dsiNoRouteHeld")).booleanValue(), "release leaves no held no-route report");
+
+        /* Check normal callback paths separately: this interleaving deliberately held the
+         * same monitor from the test itself while doing the reentrant release. */
+        r.view.stateMonitor = r.container;
+        r.carPlay(true);
+        r.dsiReportsRgActive(false);
+        r.carPlay(false);
+        check(!r.container.isRgActive() && !r.rgiValid(), "unlocked stock replay still restores no-route truth");
+    }
+
     public static void main(String[] args) throws Exception {
         Log.setLevel(-1);
-        for (int mode = 0; mode <= 2; mode++) rgiAndRgActiveReturnToStockTruth(mode);
+        for (int mode = 0; mode <= 2; mode++) {
+            rgiAndRgActiveReturnToStockTruth(mode);
+            delayedHeldWriteCannotOutliveRelease(mode);
+        }
         System.out.println("NativeGuidanceStateTest: restores latest stock guidance PASS ("+checks+" checks)");
     }
 }

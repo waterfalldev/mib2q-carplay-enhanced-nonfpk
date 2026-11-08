@@ -7,6 +7,11 @@
 set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
+HOST_SAN=address,undefined
+if [ "$(cat /proc/sys/vm/mmap_rnd_bits 2>/dev/null || echo 0)" -gt 28 ]; then
+    HOST_SAN=undefined
+    echo 'ASan disabled for host tests: vm.mmap_rnd_bits > 28; UBSan remains enabled'
+fi
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
 # Linux hosts: expose the GNU extensions macOS has by default, link libdl, and keep
@@ -76,12 +81,12 @@ cc -std=c99 -O2 -Wall -Wextra -Werror -pedantic \
 "$OUT/wireless_health"
 
 printf '%-32s ' wireless_now_playing_test
-cc -std=c99 -O1 -Wall -Wextra -Werror -fsanitize=address,undefined \
+cc -std=c99 -O1 -Wall -Wextra -Werror -fsanitize=$HOST_SAN \
     wireless/receiver_bridge/test_now_playing.c -o "$OUT/now_playing"
 "$OUT/now_playing"
 
 printf '%-32s ' airplay_listener_test
-cc -std=c99 -O1 -Wall -Wextra -Werror -fsanitize=address,undefined \
+cc -std=c99 -O1 -Wall -Wextra -Werror -fsanitize=$HOST_SAN \
     wireless/receiver_bridge/test_airplay_listener.c -o "$OUT/airplay_listener"
 "$OUT/airplay_listener"
 
@@ -120,14 +125,14 @@ cc -std=c99 -O2 -Wall -Wextra -Werror -pedantic -Ihook \
 "$OUT/coverart_safety"
 
 printf '%-32s ' wireless_semantic_test
-cc -std=gnu99 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined \
+cc -std=gnu99 -O1 -g -Wall -Wextra -Werror -fsanitize=$HOST_SAN \
     wireless/receiver_bridge/test_semantic_delivery.c -o "$OUT/semantic_delivery"
 "$OUT/semantic_delivery"
-cc -std=gnu99 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined \
+cc -std=gnu99 -O1 -g -Wall -Wextra -Werror -fsanitize=$HOST_SAN \
     wireless/receiver_bridge/test_si_state_publisher.c -lpthread -o "$OUT/si_state_publisher"
 "$OUT/si_state_publisher"
 if [ "$(uname)" = Darwin ]; then SEM_STRIP=-Wl,-dead_strip; else SEM_STRIP=-Wl,--gc-sections; fi
-cc -std=gnu99 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined \
+cc -std=gnu99 -O1 -g -Wall -Wextra -Werror -fsanitize=$HOST_SAN \
     -ffunction-sections -fdata-sections \
     tests/wireless_iap2_semantic_test.c hook/coverart/coverart_stream.c \
     hook/framework/iap2_protocol.c -lpthread $SEM_STRIP -o "$OUT/wireless_semantic"
@@ -147,7 +152,7 @@ cc -std=gnu99 -O1 -Wall -Wextra -Werror \
 "$OUT/coverart_pipeline"
 
 printf '%-32s ' altscreen_maps_profile_test
-cc -std=gnu99 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined \
+cc -std=gnu99 -O1 -g -Wall -Wextra -Werror -fsanitize=$HOST_SAN \
     tests/altscreen_maps_profile_test.c -o "$OUT/alt_maps_profile"
 "$OUT/alt_maps_profile"
 
@@ -468,18 +473,17 @@ printf '%-32s ' upmix_lang_test
 out=$(python3 -I tests/upmix_lang_test.py) || { echo "$out"; exit 1; }
 printf '%s\n' "$out" | tail -1
 
-
-
-
-
 printf '%-32s ' java_variants_link_test
-bash scripts/build_java.sh > /dev/null
 bash scripts/audit_java_variants.sh
 
 printf '%-32s ' binpatch_test
 bash scripts/test_binpatch.sh
 printf '%-32s ' network_patcher_test
-python3 -m unittest discover -s tests -p test_network_patcher.py
+if [ -f deploy/wifi/runtime/driver.so ] && [ -f deploy/wifi/runtime/stock.so ]; then
+    python3 -m unittest discover -s tests -p test_network_patcher.py
+else
+    echo 'SKIP (Wi-Fi packaging needs stock binaries excluded from this fork)'
+fi
 
 
 printf '%-32s ' supervisor_lifecycle_test

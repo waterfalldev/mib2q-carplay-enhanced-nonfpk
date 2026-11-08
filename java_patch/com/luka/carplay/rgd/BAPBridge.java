@@ -598,6 +598,28 @@ public class BAPBridge {
 
         try {
             csRef.setCarPlayRgiActive(active);
+            // MOST/RGI-only stock view selection also reads the container's RG state.
+            // VC keeps upstream's presentation-only claim to avoid persisting a phantom route.
+            if (!com.luka.carplay.cluster.ClusterPlatform.ownsContexts(CarPlayApp.framework())) {
+            DSIResponseContainer container = csRef.getDSIResponseContainer();
+            if (container != null) {
+                if (active) {
+                    if (!rgActiveForced) {
+                        rgActiveSaved = container.isRgActive();
+                        rgActiveForced = true;
+                    }
+                    container.setRgActive(true);
+                } else if (rgActiveForced) {
+                    rgActiveForced = false;
+                    /* hand back what the DSI navigation handler reported last - it may
+                     * have changed while the overlay was held (an MMI route set mid-session). */
+                    boolean restore = csRef.getLastDsiRgActive(rgActiveSaved);
+                    container.setRgActive(restore);
+                    Log.i(TAG, "rgActive overlay released (restored " + restore + ")");
+                }
+            }
+            }
+
         } catch (Exception e) {
         }
 
@@ -2203,14 +2225,14 @@ public class BAPBridge {
     private void publishKomoGuidance(RouteGuidance.State s) {
         if (!komoGuidanceOwned || csRef == null || s == null) return;
         try {
-            int idx = primaryManeuverIndex(s);
+            int idx = ManeuverPresentation.currentSlot(s);
             String turnTo = "";
             if (idx >= 0 && s.mAfterRoad != null && idx < s.mAfterRoad.length && s.mAfterRoad[idx] != null) {
                 turnTo = normalizeRouteText(keepLastColonPart(s.mAfterRoad[idx]));
             }
             String road = s.currentRoad != null ? normalizeRouteText(s.currentRoad) : "";
             long arrival = currentArrivalSeconds();
-            long arrivalLocalMs = arrival >= 0L ? convertUtcToLocalMs(arrival * 1000L) : -1L;
+            long arrivalLocalMs = arrival >= 0L ? HuTime.convertUtcToLocalMs(arrival * 1000L) : -1L;
             long remaining = currentRemainingSeconds();
             long remainingMs = remaining >= 0L ? remaining * 1000L : -1L;
             csRef.publishCarPlayKomoGuidance(turnTo, road, arrivalLocalMs, remainingMs, lastDistanceToDestinationM);

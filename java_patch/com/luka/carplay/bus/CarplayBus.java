@@ -44,14 +44,17 @@ public final class CarplayBus {
     public static final int EVT_HELLO       = 0x0001;
     public static final int EVT_SYNC_BEGIN  = 0x0002;
     public static final int EVT_SYNC_END    = 0x0003;
+    public static final int EVT_PONG        = 0x0004;   /* reply to CMD_PING */
     public static final int EVT_COVERART    = 0x0010;
     public static final int EVT_RGD_UPDATE  = 0x0020;
+    public static final int EVT_DEVICE_STATE = 0x0030;  /* reserved */
     public static final int EVT_TEL_LISTS   = 0x0040;   /* sticky text: r.* recents, f.* favorites */
     public static final int EVT_TEL_COMM    = 0x0041;   /* sticky text: signal, registration, airplane, carrier */
     public static final int EVT_MOST_MAP_VIDEO = 0x0050;  /* live:b stream:n - the phone's cluster stream reaches the MOST map */
 
     /* commands Java -> hook (mirror bus_protocol.h) */
     public static final int CMD_SYNC_REQ       = 0x0100;   /* replay all sticky state       */
+    public static final int CMD_PING           = 0x0101;   /* echo test */
     public static final int CMD_ALT_ZOOM       = 0x0110;   /* [i8 signed MapScale step]     */
     public static final int CMD_ALT_ZONE       = 0x0111;   /* [u8 0=full/1=sport/2=classic][u16 LE durationMs] */
     public static final int CMD_ALT_ZONE_ACK   = 0x0112;   /* hook->Java [u8 mode][i32 LE status]       */

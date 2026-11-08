@@ -100,7 +100,7 @@ JOBS=${JAVA_TEST_JOBS:-2}
 case "$JOBS" in ''|*[!0-9]*|0) echo 'JAVA_TEST_JOBS must be a positive integer' >&2; exit 2;; esac
 names=() defects=() logs=() statuses=()
 active=0
-jvm_options=()
+jvm_options=(-Dcarplay.source.root="$SOURCE_ROOT")
 compile() {
     local name=$1 cp=$2
     shift 2
@@ -176,10 +176,11 @@ if [ "$want_route" = 1 ]; then
     done
 fi
 if [ "$want_transports" = 1 ]; then
-    transport_plain=(TouchpadControllerTest com.luka.carplay.bus.CarplayBusTransportTest
+    transport_plain=(CoverArtClearTest TouchpadControllerTest com.luka.carplay.bus.CarplayBusTransportTest
         com.luka.carplay.rgd.RendererServerTransportTest)
-    transport_stock=(com.luka.carplay.core.VehicleDataEncodingTest com.luka.carplay.core.UpmixSettingTest
-        com.luka.carplay.telephony.GatedPhoneLockStateTest com.luka.carplay.rgd.NativeRouteStopTest)
+    transport_stock=(com.luka.carplay.core.VehicleDataEncodingTest HuTimePresentationTest
+        com.luka.carplay.telephony.GatedPhoneLockStateTest com.luka.carplay.telephony.GatedAddressBookTest
+        com.luka.carplay.rgd.NativeRouteStopTest)
     sources_of "${transport_plain[@]}" com.luka.carplay.rgd.RendererRerouteTransportTest
     compile transport-plain "$PATCH_JAR" "${sources[@]}"
     plain=$COMPILED_DIR
@@ -199,6 +200,11 @@ if [ "$want_transports" = 1 ]; then
         queue "RendererRerouteTransportTest (${vnames[$v]})" "$plain:${vpatch[$v]}:${vstock[$v]}" \
             com.luka.carplay.rgd.RendererRerouteTransportTest yes ''
     done
+    sources_of TransportDevicePolicyTest NowPlayingClearTest CarPlaySettingsAvailabilityTest
+    compile new-transports "$HOST_CP" "${sources[@]}"
+    for main in TransportDevicePolicyTest NowPlayingClearTest CarPlaySettingsAvailabilityTest; do
+        queue "$main" "$COMPILED_DIR:$HOST_CP" "$main" no ''
+    done
     # AltScreen startup scenarios and the context-switch race.
     sources_of com.luka.carplay.core.AltScreenStartupTest com.luka.carplay.core.AltScreenContextRaceTest
     compile nav-init "$PATCH_JAR:$STOCK_JAR" "${sources[@]}"
@@ -213,14 +219,13 @@ if [ "$want_transports" = 1 ]; then
         done
     done
     # Isolate the native-HMI callback, while running the actual control-server source.
-    compile altctl "$PATCH_JAR" "$CORE/AltscreenControlServer.java" \
-        "$STUBS/com/luka/carplay/core/AltScreenModule.java" "$TESTS/AltscreenControlTransportTest.java"
-    queue AltscreenControlTransportTest "$COMPILED_DIR:$PATCH_JAR" com.luka.carplay.core.AltscreenControlTransportTest yes ''
+    compile altctl "$PATCH_JAR:$STOCK_JAR" "$TESTS/AltscreenControlTransportTest.java"
+    queue AltscreenControlTransportTest "$COMPILED_DIR:$PATCH_JAR:$STOCK_JAR" com.luka.carplay.core.AltscreenControlTransportTest yes ''
     # The actual lifecycle worker against controllable external modules.
     compile lifecycle '' "$CORE/CarPlayApp.java" "$CORE/Module.java" "$CORE/Features.java" \
         "$TESTS/CarPlayAppLifecycleTest.java" \
         "$STUBS/app-lifecycle/com/luka/carplay/core/LifecycleFixtures.java" \
-        "$STUBS/app-lifecycle/com/luka/carplay/core/UpmixSetting.java" \
+        "$STUBS/app-lifecycle/com/luka/carplay/connectivity/CarPlaySettingsUi.java" \
         "$STUBS/app-lifecycle/com/luka/carplay/bus/CarplayBus.java" \
         "$STUBS/app-lifecycle/com/luka/carplay/framework/Log.java" \
         "$STUBS/app-lifecycle/com/luka/carplay/pdc/PdcSmallStageGuard.java" \
@@ -292,12 +297,12 @@ if [ "$want_fuzz" = 1 ]; then
             done
         done
     done
-    jvm_options=()
+    jvm_options=(-Dcarplay.source.root="$SOURCE_ROOT")
 fi
 if [ "$want_contract" = 1 ]; then
     if [ -n "${RGD_CONTRACT_FRAMES:-}" ]; then
         frames=()
-        for frame in old-slot.txt new-no-angle.txt new-known-angle.txt new-generation.txt; do
+        for frame in old-slot.txt new-no-angle.txt new-known-angle.txt new-generation.txt left-no-junction.txt right-no-junction.txt; do
             test -f "$RGD_CONTRACT_FRAMES/$frame" || { echo "Missing native contract frame: $frame" >&2; exit 1; }
             frames+=("$RGD_CONTRACT_FRAMES/$frame")
         done
