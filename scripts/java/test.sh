@@ -179,7 +179,7 @@ if [ "$want_transports" = 1 ]; then
     transport_plain=(TouchpadControllerTest com.luka.carplay.bus.CarplayBusTransportTest
         com.luka.carplay.rgd.RendererServerTransportTest)
     transport_stock=(com.luka.carplay.core.VehicleDataEncodingTest com.luka.carplay.core.UpmixSettingTest
-        com.luka.carplay.telephony.GatedPhoneLockStateTest)
+        com.luka.carplay.telephony.GatedPhoneLockStateTest com.luka.carplay.rgd.NativeRouteStopTest)
     sources_of "${transport_plain[@]}" com.luka.carplay.rgd.RendererRerouteTransportTest
     compile transport-plain "$PATCH_JAR" "${sources[@]}"
     plain=$COMPILED_DIR
