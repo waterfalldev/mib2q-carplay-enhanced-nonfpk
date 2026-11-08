@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Regression checks for documentation validation; no third-party dependencies."""
+from contextlib import redirect_stdout, redirect_stderr
+from io import StringIO
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 import check_docs
 
 
@@ -43,6 +46,21 @@ class DocumentationChecks(unittest.TestCase):
             self.assertEqual(len(errors), 2)
             self.assertTrue(any('missing anchor' in x for x in errors))
             self.assertTrue(any('missing target' in x for x in errors))
+
+    def test_default_checks_all_source_docs_but_ignores_generated_output(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for name in ['README.md', 'TODO.md', 'component/README.md', 'build/export/README.md']:
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('[broken](missing.md)', encoding='utf-8')
+            output, errors = StringIO(), StringIO()
+            with patch.object(check_docs, 'ROOT', root), redirect_stdout(output), redirect_stderr(errors):
+                self.assertTrue(check_docs.main([]))
+            self.assertIn('Checked 3 Markdown files; 3 broken', output.getvalue())
+            self.assertIn('TODO.md:', errors.getvalue())
+            self.assertIn('component', errors.getvalue())
+            self.assertNotIn('build', errors.getvalue())
 
 
 if __name__ == '__main__':

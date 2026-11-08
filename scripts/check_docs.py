@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check local Markdown links/anchors in docs and the root README; no network needed.
+"""Check local Markdown links/anchors in the source documentation; no network needed.
 
 External URLs are deliberately not validated. Fenced and inline code are examples,
 not links. Run from any directory. Also used on the exported public snapshot.
@@ -80,14 +80,18 @@ def check(paths):
                     errors.append(label + ' (missing anchor)')
     return errors
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('paths', nargs='*', help='optional Markdown files or folders, relative to repo')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     paths = []
-    for item in args.paths or ['README.md', 'docs']:
+    for item in args.paths or ['.']:
         p = ROOT / item
-        paths.extend(sorted(p.rglob('*.md')) if p.is_dir() else [p])
+        candidates = p.rglob('*.md') if p.is_dir() else [p]
+        for candidate in candidates:
+            if not set(candidate.relative_to(ROOT).parts) & {'.git', 'build', 'node_modules', '.venv'}:
+                paths.append(candidate)
+    paths = sorted(set(paths))
     errors = check(paths)
     for error in errors: print(error, file=sys.stderr)
     print(f'Checked {len(paths)} Markdown files; {len(errors)} broken local links/anchors.')
