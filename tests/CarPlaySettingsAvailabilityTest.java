@@ -31,7 +31,8 @@ public final class CarPlaySettingsAvailabilityTest {
     static boolean onHmiThread;
     static int mapMode = 1;
     static IFrameworkAccess framework;
-    static ChoiceModel spatial, upmix;
+    static ChoiceModel spatial, upmix, maps;
+    static int savedMapMode = Integer.MIN_VALUE;
     static void check(boolean b, String message) { if (!b) throw new AssertionError(message); }
     static Field field(Class<?> c, String name) throws Exception {
         while (c != null) {
@@ -59,9 +60,20 @@ public final class CarPlaySettingsAvailabilityTest {
             if (m.getName().equals("getEventDispatcher")) return dispatcher;
             throw new AssertionError(m.getName());
         });
+        de.audi.atip.storage.IStorageAccess storage=proxy(de.audi.atip.storage.IStorageAccess.class,(o,m,a)-> {
+            if (m.getName().equals("getInt"))
+                return ((Integer)a[1]).intValue()==1002 && savedMapMode!=Integer.MIN_VALUE ? savedMapMode : a[2];
+            if (m.getName().equals("setInt")) {
+                if (((Integer)a[1]).intValue()==1002) savedMapMode=((Integer)a[2]).intValue();
+                return null;
+            }
+            throw new AssertionError(m.getName());
+        });
         framework=proxy(IFrameworkAccess.class,(o,m,a)-> {
             if (m.getName().equals("getLogChannel")) return LOG;
             if (m.getName().equals("getHMIService")) return hmi;
+            if (m.getName().equals("getStorageMgr")) return storage;
+            if (m.getName().equals("getBundleCxt")) return null;
             if (m.getName().equals("getSysConst") && ((Integer)a[0]).intValue()==541) return mapMode;
             if (m.getName().equals("getLanguageMgr")) return proxy(de.audi.atip.i18n.ILanguageManager.class,(x,method,args)->
                 new de.audi.atip.i18n.Language(-1,"en_US","en","English",0,java.util.Locale.US));
@@ -81,8 +93,10 @@ public final class CarPlaySettingsAvailabilityTest {
         Object bank=CarPlaySettingsUi.newBank();
         invoke(bank,"createModel",new Class[]{int.class},500);
         invoke(bank,"createModel",new Class[]{int.class},501);
+        invoke(bank,"createModel",new Class[]{int.class},502);
         spatial=(ChoiceModel)field(UI,"spatialModel").get(null);
         upmix=(ChoiceModel)field(UI,"upmixModel").get(null);
+        maps=(ChoiceModel)field(UI,"altScreenModel").get(null);
     }
     static final class Fixture {
         final MenuController menu=new MenuController();
@@ -120,6 +134,12 @@ public final class CarPlaySettingsAvailabilityTest {
                 check(item!=null && menu.getChild(i)==item && item.getParent()==menu,
                     "wrong menu order or binding for model "+ids.get(i));
             }
+            check(row(2500502).getType()==(mapMode==1 ? MenuItemController.TYPE_COMBO_BOX : MenuItemController.TYPE_CHECKBOX),
+                "MOST needs a three-choice dropdown; VC keeps its boolean control");
+            if (mapMode==1) {
+                check(java.util.Arrays.equals(row(2500502).getTextIds(),new int[]{2501525,2501526,2501527}),
+                    "map mode labels must have the requested display order");
+            }
             if (mapMode==1)
                 check(row(2500503)==null && row(2500504)==null,"MOST must hide both map card settings");
             check(menu.hasFocusedItem() && menu.getFocusedIndex().equals(new MenuItemIndex(0,0)),"focus lost");
@@ -136,8 +156,33 @@ public final class CarPlaySettingsAvailabilityTest {
         try { while(!events.isEmpty()) events.remove(0).dispatch(); }
         finally { onHmiThread=false; }
     }
+    static void mapPolicyPersistence() throws Exception {
+        mapMode=1;
+        check(CarPlaySettingsUi.ALTSCREEN_ON==CarPlaySettingsUi.ALTSCREEN_ALWAYS,
+            "legacy On must mean always on, matching VC");
+        de.audi.tghu.connectivity.hmi.evohigh.ConnectivityScreenFactory factory=CarPlaySettingsUi.newFactory(framework);
+        String[] labels={"Off","When navigating","Always on"};
+        int[] modes={CarPlaySettingsUi.ALTSCREEN_OFF,CarPlaySettingsUi.ALTSCREEN_WHEN_NAVIGATING,CarPlaySettingsUi.ALTSCREEN_ALWAYS};
+        for(int choice=0;choice<3;choice++) {
+            check(labels[choice].equals(factory.getText(2501525+choice)),"wrong dropdown label "+choice);
+            maps.itemSelected(choice,0);
+            check(savedMapMode==modes[choice] && maps.getValue()==choice,"choice-to-storage mapping failed "+choice);
+            put(UI,null,"currentAltScreen",Integer.valueOf(-1));
+            CarPlaySettingsUi.boot(framework);
+            check(((Integer)field(UI,"currentAltScreen").get(null)).intValue()==modes[choice]
+                && maps.getValue()==choice,"map preference did not survive boot "+choice);
+            String file=CarPlaySettingsUi.formatSettings(0,0,modes[choice],0,0,1,0);
+            check(file.indexOf("\naltscreen="+(choice==0 ? 0 : 1)+"\n")>=0,
+                "native settings must retain their boolean enable contract");
+        }
+        maps.itemSelected(3,0);
+        check(savedMapMode==CarPlaySettingsUi.ALTSCREEN_ALWAYS && maps.getValue()==2,
+            "invalid choice overwrote the preference");
+    }
+
     public static void main(String[] args) throws Exception {
         setup();
+        check(CarPlaySettingsUi.isMostMapEnabled(false) && maps.getValue()==2,"fresh/legacy On defaults to Always on");
         // Early detection, including repeated screen construction, keeps the same models.
         for(int mode:new int[]{1,2}) {
             mapMode=mode;
@@ -161,6 +206,7 @@ public final class CarPlaySettingsAvailabilityTest {
         finally { onHmiThread=false; }
         new Fixture(3).verify(false);
         new Fixture(21).verify(com.luka.carplay.core.Features.UPMIX);
-        System.out.println("CarPlaySettingsAvailabilityTest: PASS (MOST/VC row visibility, disabled audio hidden, saved values, stable focus/bindings and amplifier callbacks)");
+        mapPolicyPersistence();
+        System.out.println("CarPlaySettingsAvailabilityTest: PASS (MOST three-choice map mode, persistence, VC On compatibility, hidden rows and amplifier callbacks)");
     }
 }

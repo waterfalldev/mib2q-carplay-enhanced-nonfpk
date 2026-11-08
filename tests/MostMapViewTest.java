@@ -34,6 +34,9 @@ public final class MostMapViewTest {
         final File request, ready;
 
         Rig() throws Exception {
+            // Existing navigation/stream cases explicitly exercise the route-only policy.
+            setStatic(com.luka.carplay.connectivity.CarPlaySettingsUi.class,"currentAltScreen",
+                Integer.valueOf(com.luka.carplay.connectivity.CarPlaySettingsUi.ALTSCREEN_WHEN_NAVIGATING));
             listener.hmi = hmi;
             MostArrowsTest.mostSession(true);
             Method defineContexts = DisplayManagerMIB2High.class.getDeclaredMethod("defineContexts");
@@ -368,9 +371,47 @@ public final class MostMapViewTest {
         }
     }
 
+    private static void alwaysOnPolicy() throws Exception {
+        try (Rig r=new Rig()) {
+            r.extents.put(Integer.valueOf(33),new int[]{800,298});
+            r.choose(72);
+            r.report("0800 0298 0000001234.0000000001\n");
+            MostPresentation.setMapLive(true);
+            r.hmi.idle();
+            check(!MostPresentation.isMapActive() && r.requestText()==null,"When navigating stays stock while idle");
+            com.luka.carplay.connectivity.CarPlaySettingsUi.selectAltScreen(
+                com.luka.carplay.connectivity.CarPlaySettingsUi.ALTSCREEN_ON);
+            check(MostArrowsTest.waitFor(r.dsi,"switch 82 term 4",3000L),"legacy On/Always on shows the live map without navigation");
+            check(MostPresentation.isMapActive() && !MostPresentation.isActive(),"Always on does not invent guidance arrows");
+            MostPresentation.setNavigationOwner(2);
+            com.luka.carplay.core.AltScreenModule.setNavActive(true);
+            com.luka.carplay.core.AltScreenModule.setNavActive(false);
+            MostPresentation.setNavigationOwner(0);
+            r.hmi.idle();
+            check(MostPresentation.isMapActive(),"Always on keeps the map after navigation ends");
+            MostPresentation.setMapLive(false);
+            r.hmi.idle();
+            check(!MostPresentation.isMapActive() && r.requestText()==null,"Always on still releases a missing stream");
+            MostPresentation.setMapLive(true);
+            check(MostArrowsTest.waitFor(r.dsi,"switch 82 term 4",3000L),"Always on resumes when the stream returns");
+            com.luka.carplay.connectivity.CarPlaySettingsUi.selectAltScreen(
+                com.luka.carplay.connectivity.CarPlaySettingsUi.ALTSCREEN_WHEN_NAVIGATING);
+            r.hmi.idle();
+            check(!MostPresentation.isMapActive() && r.requestText()==null,"switching to When navigating releases an idle map");
+            MostPresentation.setNavigationOwner(2);
+            check(MostArrowsTest.waitFor(r.dsi,"switch 82 term 4",3000L),"When navigating also follows phone navigation without RGI");
+            MostPresentation.setNavigationOwner(0);
+            r.hmi.idle();
+            check(!MostPresentation.isMapActive(),"When navigating releases when phone navigation ends");
+        } finally {
+            setStatic(com.luka.carplay.connectivity.CarPlaySettingsUi.class,"currentAltScreen",Integer.valueOf(1));
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         if (args.length>0 && args[0].equals("settings")) {
             mapSetting();
+            alwaysOnPolicy();
             System.out.println("MostMapViewTest settings: PASS ("+checks+" checks)");
             return;
         }
@@ -379,6 +420,7 @@ public final class MostMapViewTest {
         viewsAreIndependent();
         phoneNavigationWithoutGuidance();
         mapSetting();
+        alwaysOnPolicy();
         wheelZoom();
         clusterTheme();
         System.out.println("MostMapViewTest: measured, confirmed MAP window only, stock restoration, independent views, the navigation-and-stream rule, wheel zoom and the cluster theme PASS (" + checks + " checks)");

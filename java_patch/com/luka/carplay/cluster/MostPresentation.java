@@ -13,7 +13,8 @@
  * (maneuver_render's scene) and MAP 72 -> 82 = {99} (the phone's cluster map, decoded by the
  * renderer).  CarPlay route guidance requests the arrows (setActive); it, or the phone owning
  * CarPlay navigation (setNavigationOwner), requests the MAP view while the phone's cluster
- * stream is live (setMapLive, from ClusterVideo).  The MOST
+ * stream is live (setMapLive, from ClusterVideo). Always on also requests MAP outside
+ * navigation; Off never requests it. The MOST
  * encoder streams that leading displayable as-is at the stock source's size (KDK 20: 800x252,
  * MAP 33: 800x298 on this car), so the renderer is asked to make its window exactly that size
  * (25 Sept 2026: a 328x181 window streamed blank).  Everything else stays stock:
@@ -254,8 +255,7 @@ public final class MostPresentation {
     }
 
     private static boolean mapWanted() {
-        return CarPlaySettingsUi.isAltScreenEnabled()
-            && (guiding || navOwner == NAV_OWNER_PHONE) && mapLive;
+        return mapLive && CarPlaySettingsUi.isMostMapEnabled(guiding || navOwner == NAV_OWNER_PHONE);
     }
 
     private static void setMapRequested(boolean on) {

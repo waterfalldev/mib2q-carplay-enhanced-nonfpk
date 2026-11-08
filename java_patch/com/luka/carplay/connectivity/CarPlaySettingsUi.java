@@ -3,7 +3,7 @@
  * submenu screen 2500140 (cMOPTABOUTCARPLAY) with:
  *   1. Spatial Audio      (checkbox -> KEY_SPATIAL 1001, spatial=0|1, CMD_SPATIAL; external amp only)
  *   2. UpMix              (3-choice: Off | Normal | Intense -> KEY_UPMIX 1000, upmix=0..2, CMD_UPMIX; external amp only)
- *   3. CarPlay on Cluster (checkbox: On | Off -> KEY_ALTSCREEN 1002, altscreen=0|1, CMD_ALT_CFG)
+ *   3. Maps on Cluster   (MOST: Off | When navigating | Always on, key 1002; VC keeps On/Off)
  *   4. Position           (3-choice: Left | Center | Right -> KEY_ALT_LAYOUT 1004, alt_layout=0..2, CMD_ALT_CFG)
  *   5. Route Guidance     (checkbox: On | Off -> KEY_RGI_ENABLED 1005, rgi=0|1; unlocks rows 6..8)
  *   6. CarPlay Map Cards  (2-choice: Hide when guiding | Always show -> KEY_ALT_URL 1003, alt_url=0|1, CMD_ALT_CFG)
@@ -83,8 +83,11 @@ public final class CarPlaySettingsUi {
     private static final int SPATIAL_DEFAULT = SPATIAL_ON;
 
     public static final int ALTSCREEN_OFF = 0;
-    public static final int ALTSCREEN_ON = 1;
-    public static final int ALTSCREEN_DEFAULT = ALTSCREEN_ON;
+    // Preserve the VC's persisted On=1 meaning: maps throughout CarPlay.
+    public static final int ALTSCREEN_ALWAYS = 1;
+    public static final int ALTSCREEN_WHEN_NAVIGATING = 2;
+    public static final int ALTSCREEN_ON = ALTSCREEN_ALWAYS;
+    public static final int ALTSCREEN_DEFAULT = ALTSCREEN_ALWAYS;
 
     public static final int ALT_URL_MAP_WHEN_RGI = 0;
     public static final int ALT_URL_CARDS_ALWAYS = 1;
@@ -135,7 +138,7 @@ public final class CarPlaySettingsUi {
     private static final int INTERNAL_ID_ALT_URL     = 2509915;
     private static final int INTERNAL_ID_RGI_FAR     = 2509916;
 
-    // HMIConnectivityEvoHigh string table slots 1500..1524 (text ids 2501500..2501524)
+    // HMIConnectivityEvoHigh string table slots 1500..1527 (text ids 2501500..2501527)
     public static final int TEXT_TITLE                  = 2501500;
     public static final int TEXT_SPATIAL                = 2501501;
     public static final int TEXT_SPATIAL_HINT           = 2501502;
@@ -162,6 +165,10 @@ public final class CarPlaySettingsUi {
     public static final int TEXT_RGI_FAR_STRAIGHT       = 2501523;
     public static final int TEXT_RGI_FAR_HINT           = 2501524;
 
+    public static final int TEXT_ALTSCREEN_OFF          = 2501525;
+    public static final int TEXT_ALTSCREEN_NAVIGATING   = 2501526;
+    public static final int TEXT_ALTSCREEN_ALWAYS       = 2501527;
+
     private static final String[] FALLBACK_TEXTS = new String[]{
         "CarPlay settings",
         "Spatial Audio",
@@ -172,7 +179,7 @@ public final class CarPlaySettingsUi {
         "Intense",
         "Expand stereo audio into 5.1 surround sound",
         "Maps on Cluster",
-        "Show CarPlay maps on the instrument cluster",
+        "Choose when CarPlay maps appear on the instrument cluster",
         "Maneuver Cards Position",
         "Left",
         "Center",
@@ -187,7 +194,10 @@ public final class CarPlaySettingsUi {
         "Guidance Maneuver Preview",
         "Always next maneuver",
         "Follow road when far",
-        "Show the next turn in advance, or a straight arrow until you get closer"
+        "Show the next turn in advance, or a straight arrow until you get closer",
+        "Off",
+        "When navigating",
+        "Always on"
     };
 
     private static final int[] SUBMENU_BITMAPS = new int[]{39, 39, 39, 39};
@@ -252,7 +262,13 @@ public final class CarPlaySettingsUi {
     }
 
     public static boolean isAltScreenEnabled() {
-        return currentAltScreen == ALTSCREEN_ON;
+        return currentAltScreen != ALTSCREEN_OFF;
+    }
+
+    /** MOST map policy; legacy On keeps the VC-style always-on behavior. */
+    public static boolean isMostMapEnabled(boolean navigating) {
+        int mode = currentAltScreen;
+        return mode == ALTSCREEN_ALWAYS || (mode == ALTSCREEN_WHEN_NAVIGATING && navigating);
     }
 
     public static int getAltUrlMode() {
@@ -274,7 +290,7 @@ public final class CarPlaySettingsUi {
     /** Send active AltScreen enable, URL policy, and card placement to the C hook. */
     public static boolean sendAltConfigToHook() {
         byte[] payload = new byte[]{
-            (byte) currentAltScreen,
+            (byte) (isAltScreenEnabled() ? 1 : 0),
             (byte) currentAltUrl,
             (byte) currentAltLayout
         };
@@ -310,7 +326,7 @@ public final class CarPlaySettingsUi {
             }
             currentLevel = read();
             currentSpatial = readSpatial();
-            currentAltScreen = readBounded(KEY_ALTSCREEN, ALTSCREEN_DEFAULT, 0, 1);
+            currentAltScreen = readBounded(KEY_ALTSCREEN, ALTSCREEN_DEFAULT, ALTSCREEN_OFF, ALTSCREEN_WHEN_NAVIGATING);
             currentAltUrl = readBounded(KEY_ALT_URL, ALT_URL_DEFAULT, 0, 1);
             currentAltLayout = readBounded(KEY_ALT_LAYOUT, ALT_LAYOUT_DEFAULT, 0, 2);
             currentRgiEnabled = readBounded(KEY_RGI_ENABLED, RGI_ENABLED_DEFAULT, 0, 1);
@@ -358,10 +374,11 @@ public final class CarPlaySettingsUi {
         Log.i(TAG, "selected spatial " + enable + (sent ? "" : " (bus down: the hook takes it from the file at its next start)"));
     }
 
-    /** The user toggled CarPlay on Cluster (0=Off, 1=On). */
+    /** Persisted map mode: 0=Off, 1=Always on (legacy On), 2=When navigating. */
     public static void selectAltScreen(int enable) {
-        if (enable != ALTSCREEN_OFF && enable != ALTSCREEN_ON) return;
+        if (enable < ALTSCREEN_OFF || enable > ALTSCREEN_WHEN_NAVIGATING) return;
         currentAltScreen = enable;
+        showAltScreen(enable);
         storeKey(KEY_ALTSCREEN, enable);
         writeSettingsFile();
         syncMenuEnabledStates();
@@ -414,7 +431,7 @@ public final class CarPlaySettingsUi {
 
     static void syncMenuEnabledStates() {
         try {
-            boolean clusterOn = (currentAltScreen == ALTSCREEN_ON);
+            boolean clusterOn = isAltScreenEnabled();
             boolean rgiOn = (currentRgiEnabled == RGI_ENABLED_ON);
             MenuItemController layoutItem = altLayoutMenuItem;
             if (layoutItem != null) layoutItem.setEnabled(clusterOn);
@@ -493,7 +510,7 @@ public final class CarPlaySettingsUi {
                                         int altLayout, int rgiEnabled, int rgiFar) {
         return "spatial=" + spatial
              + "\nupmix=" + upmix
-             + "\naltscreen=" + altscreen
+             + "\naltscreen=" + (altscreen == ALTSCREEN_OFF ? 0 : 1)
              + "\nalt_url=" + altUrl
              + "\nalt_layout=" + altLayout
              + "\nrgi=" + rgiEnabled
@@ -554,12 +571,19 @@ public final class CarPlaySettingsUi {
         } catch (Throwable t) { /* UI mirror only */ }
     }
 
+    // MOST's displayed order is Off / When navigating / Always on. The stored
+    // values retain legacy On=1; the VC keeps its existing boolean model.
+    private static int mapModeToChoice(int mode) {
+        if (!ClusterPlatform.isMost(fw)) return mode == ALTSCREEN_OFF ? 0 : 1;
+        return mode == ALTSCREEN_OFF ? 0 : mode == ALTSCREEN_WHEN_NAVIGATING ? 1 : 2;
+    }
+
     public static void showAltScreen(int enable) {
         try {
-            int v = enable != 0 ? 1 : 0;
+            int v = enable >= ALTSCREEN_OFF && enable <= ALTSCREEN_WHEN_NAVIGATING ? enable : ALTSCREEN_DEFAULT;
             pendingAltScreen = v;
             ChoiceModel m = altScreenModel;
-            if (m != null) m.setValue(v);
+            if (m != null) m.setValue(mapModeToChoice(v));
         } catch (Throwable t) { /* UI mirror only */ }
     }
 
@@ -663,13 +687,16 @@ public final class CarPlaySettingsUi {
                 m.setChoiceListener(new DefaultChoiceListener() {
                     public void itemSelected(int id, int value, int unused, int terminal) {
                         try {
-                            int v = value != 0 ? 1 : 0;
-                            m.setValue(v);
-                            selectAltScreen(v);
+                            boolean most = ClusterPlatform.isMost(fw);
+                            if (value < 0 || value > (most ? 2 : 1)) return;
+                            int mode = value == 0 ? ALTSCREEN_OFF
+                                : most && value == 1 ? ALTSCREEN_WHEN_NAVIGATING : ALTSCREEN_ALWAYS;
+                            m.setValue(value);
+                            selectAltScreen(mode);
                         } catch (Throwable t) { /* never into the HMI thread */ }
                     }
                 });
-                m.setValue(pendingAltScreen);
+                m.setValue(mapModeToChoice(pendingAltScreen));
                 this.models[i] = m;
                 altScreenModel = m;
                 return;
@@ -773,6 +800,8 @@ public final class CarPlaySettingsUi {
         }
 
         public String getText(int id) {
+            if (id >= TEXT_ALTSCREEN_OFF && id <= TEXT_ALTSCREEN_ALWAYS)
+                return FALLBACK_TEXTS[id - TEXT_TITLE];
             String s = super.getText(id);
             if ((s == null || s.length() == 0) && id >= TEXT_TITLE && id <= TEXT_RGI_FAR_HINT) {
                 return FALLBACK_TEXTS[id - TEXT_TITLE];
@@ -781,6 +810,7 @@ public final class CarPlaySettingsUi {
         }
 
         public int getTextStatus(int id) {
+            if (id >= TEXT_ALTSCREEN_OFF && id <= TEXT_ALTSCREEN_ALWAYS) return 8;
             int st = super.getTextStatus(id);
             if (st == 0 && id >= TEXT_TITLE && id <= TEXT_RGI_FAR_HINT) {
                 return 8;
@@ -968,13 +998,17 @@ public final class CarPlaySettingsUi {
                 upmixMenuItem = upmixItem;
             }
 
-            // Row 3: Maps on Cluster (checkbox)
-            MenuItemController altScreenItem = createCheckboxItem(terminal, MODEL_ALTSCREEN,
-                TEXT_ALTSCREEN, TEXT_ALTSCREEN_HINT, INTERNAL_ID_ALTSCREEN);
+            boolean showMapCards = !ClusterPlatform.isMost(this.getFramework());
+            // MOST: explicit map policy. Keep the VC's existing On/Off control.
+            MenuItemController altScreenItem = showMapCards
+                ? createCheckboxItem(terminal, MODEL_ALTSCREEN,
+                    TEXT_ALTSCREEN, TEXT_ALTSCREEN_HINT, INTERNAL_ID_ALTSCREEN)
+                : createComboItem(terminal, MODEL_ALTSCREEN, TEXT_ALTSCREEN,
+                    new int[]{TEXT_ALTSCREEN_OFF, TEXT_ALTSCREEN_NAVIGATING, TEXT_ALTSCREEN_ALWAYS},
+                    TEXT_ALTSCREEN_HINT, INTERNAL_ID_ALTSCREEN);
             registerScreenView(screen, MODEL_ALTSCREEN, altScreenItem);
             menu.addWithPosition(altScreenItem, pos++);
 
-            boolean showMapCards = !ClusterPlatform.isMost(this.getFramework());
             altLayoutMenuItem = null;
             if (showMapCards) {
                 // Row 4: Maneuver Cards Position (Left | Center | Right)
