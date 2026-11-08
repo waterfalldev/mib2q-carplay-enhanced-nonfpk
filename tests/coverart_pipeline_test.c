@@ -157,7 +157,8 @@ int main(void)
     coverart_wireless_file(clear,sizeof(clear));
     for(unsigned attempt=0;attempt<100;++attempt) {
         pthread_mutex_lock(&worker_mutex);int cleared=g_coverart.last_crc==0&&notifications==2;pthread_mutex_unlock(&worker_mutex);
-        if(cleared)break;usleep(10000);
+        if(cleared)break;
+        usleep(10000);
     }
     pthread_mutex_lock(&worker_mutex);assert(!g_coverart.last_crc&&notifications==2);pthread_mutex_unlock(&worker_mutex);
     assert(access(COVERART_FILE,F_OK)!=0);

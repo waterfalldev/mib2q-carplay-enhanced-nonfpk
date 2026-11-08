@@ -584,10 +584,34 @@ public class ClusterService implements NaviMoKoKDKConstants, PowerEventListener 
 
     public void updateRgActive(boolean flag) {
         this.logChannel.log(100000000, "ClusterService#updateRgActive( %1 )", flag);
-        if (!flag && this.carplayRgiActive) {
-            this.refreshRGIValid();
+        /* Only AbstractDSINavigationHandler calls this, right after it writes the container.
+         * Use the container's own monitor: its final stock class has plain synchronized
+         * rgActive accessors.  Claim/release and the held write must be one state operation;
+         * a delayed DSI false must never write true after CarPlay released the claim. */
+        boolean most = !com.luka.carplay.cluster.ClusterPlatform
+            .ownsContexts(com.luka.carplay.core.CarPlayApp.framework());
+        DSIResponseContainer container = this.env.getContainer();
+        boolean held;
+        synchronized (container) {
+            this.dsiRgActive = flag;
+            this.dsiRgActiveKnown = true;
+            this.dsiNoRouteHeld = !flag && this.carPlayRgiValidOverride;
+            held = this.dsiNoRouteHeld;
+            /* Repeat the handler's write under this monitor too: a concurrent overlay
+             * release may have restored an older container value before we got here. */
+            container.setRgActive(flag || (held && most));
+        }
+        if (held) {
+            /* CarPlay guides: stock's no-route response must not clear its cluster text.
+             * VC retains the real DSI false; only MOST holds the container true. */
+            com.luka.carplay.framework.Log.w(VIEW_TAG, "navigator reports no route guidance; rgActive held for CarPlay");
             return;
         }
+        this.applyRgActive(flag);
+    }
+
+    /** Stock callbacks run after releasing the container state monitor. */
+    private void applyRgActive(boolean flag) {
         this.refreshRGIValid();
         this.clusterViewMode.refreshRGState();
         if (!flag) {
@@ -1194,13 +1218,23 @@ public class ClusterService implements NaviMoKoKDKConstants, PowerEventListener 
     /** CarPlay RGI presentation claim.  Feeds refreshRGIValid() without touching the stock
      *  RGI data (rgiDataValid / data model 68), so the release restores exactly stock truth. */
     public void setCarPlayRgiValidOverride(boolean active) {
-        this.carPlayRgiValidOverride = active;
-        if (!active && this.dsiNoRouteHeld) {
-            /* The navigator's "no route" held while CarPlay guided: stock's own handling now
-             * (refreshRGIValid included), as if it had just arrived. */
-            this.dsiNoRouteHeld = false;
-            this.env.getContainer().setRgActive(false);
-            this.updateRgActive(false);
+        boolean most = !com.luka.carplay.cluster.ClusterPlatform
+            .ownsContexts(com.luka.carplay.core.CarPlayApp.framework());
+        DSIResponseContainer container = this.env.getContainer();
+        boolean replay;
+        synchronized (container) {
+            this.carPlayRgiValidOverride = active;
+            replay = !active && this.dsiNoRouteHeld;
+            if (active && most) container.setRgActive(true);
+            if (replay) {
+                this.dsiNoRouteHeld = false;
+                container.setRgActive(false);
+            }
+        }
+        if (replay) {
+            /* Replay stock's held no-route response, without reacquiring the claim or
+             * holding the state monitor through arbitrary stock/HMI callbacks. */
+            this.applyRgActive(false);
             return;
         }
         this.refreshRGIValid();

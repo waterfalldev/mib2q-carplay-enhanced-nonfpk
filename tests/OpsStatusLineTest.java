@@ -187,7 +187,7 @@ public final class OpsStatusLineTest {
             check(m2.opsStub.standaloneBg.getBitmapIndices()[3] == PdcSmallStageGuard.OPS_BACKGROUND_STOCK,
                 "OPS swapped to trimmed bitmap despite missing file");
         } finally {
-            setTrimmedBgFile("deploy/hmi/HMIEarlyAppsEvoHigh/2199999.png");
+            setTrimmedBgFile(System.getProperty("carplay.source.root", ".") + "/deploy/hmi/HMIEarlyAppsEvoHigh/2199999.png");
         }
     }
     static void setTrimmedBgFile(String path) throws Exception {
@@ -235,7 +235,7 @@ public final class OpsStatusLineTest {
             throw new AssertionError("unexpected logging framework call " + n);
         }));
         try {
-            setTrimmedBgFile("deploy/hmi/HMIEarlyAppsEvoHigh/2199999.png");
+            setTrimmedBgFile(System.getProperty("carplay.source.root", ".") + "/deploy/hmi/HMIEarlyAppsEvoHigh/2199999.png");
             guarded(); showingFooterInterrupted(); scope(); opsBackgroundTransitions();
             System.out.println("OpsStatusLineTest: PASS (stock popup 62 show/hide/queue, OPS + background 1007<->2199999, HOME/camera/disconnect/rear/timeout)");
         } finally { PdcSmallStageGuard.parkingStopped(); CarPlayApp.active = false; }

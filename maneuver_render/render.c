@@ -2109,13 +2109,7 @@ void render_pop_mask_transform(void) {
     memcpy(g_mvp_ortho_2d, g_mvp_ortho_2d_saved, sizeof(g_mvp_ortho_2d));
 }
 
-static int g_active_road_fbo = FBO_ROAD;
-
-void render_select_road_fbo(int idx) {
-    g_active_road_fbo = (idx == 1) ? 1 : 0;
-}
-
-void render_begin_outline_mask(void) { begin_mask(g_active_road_fbo); }
+void render_begin_outline_mask(void) { begin_mask(FBO_ROAD); }
 void render_end_outline_mask(void)   { end_mask(); }
 
 void render_begin_route_mask(void) {

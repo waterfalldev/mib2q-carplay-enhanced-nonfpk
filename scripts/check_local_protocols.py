@@ -16,6 +16,9 @@ def numeric(expr):
     def value(node):
         if isinstance(node, ast.Constant) and type(node.value) is int:
             return node.value
+        if isinstance(node, ast.UnaryOp):
+            if isinstance(node.op, ast.USub): return -value(node.operand)
+            if isinstance(node.op, ast.UAdd): return value(node.operand)
         if isinstance(node, ast.BinOp):
             a, b = value(node.left), value(node.right)
             if isinstance(node.op, ast.Mult): return a * b
@@ -26,7 +29,7 @@ def numeric(expr):
 
 
 def constants(path, java=False):
-    text = (ROOT / path).read_text()
+    text = (ROOT / path).read_text(encoding="utf-8")
     text = re.sub(r"/\*.*?\*/|//[^\n]*", "", text, flags=re.S)
     # A valueless header guard must not consume the next #define as its value.
     pattern = r"\b(?:int|byte|long)\s+(\w+)\s*=\s*([^;]+);" if java else r"^#define[ \t]+(\w+)[ \t]+([^\n]+)"
@@ -35,11 +38,19 @@ def constants(path, java=False):
 
 checks = 0
 
-def compare(c_path, java_path, mapping, shared=()):
+def compare(c_path, java_path, mapping, shared=(), c_only=()):
     global checks
     c, j = constants(c_path), constants(java_path, True)
     pairs = list(mapping.items())
-    pairs += [(key, key) for key in j if key.startswith(shared) and key in c]
+    cnames = {key for key in c if key.startswith(shared)}
+    jnames = {key for key in j if key.startswith(shared)}
+    missing_java = cnames - jnames - set(c_only)
+    missing_c = jnames - cnames
+    if missing_java:
+        raise SystemExit(f"Protocol names mismatch: {java_path} missing Java peers: {', '.join(sorted(missing_java))}")
+    if missing_c:
+        raise SystemExit(f"Protocol names mismatch: {c_path} missing C peers: {', '.join(sorted(missing_c))}")
+    pairs += [(key, key) for key in sorted(cnames & jnames)]
     for cn, jn in pairs:
         cv, jv = numeric(c[cn]), numeric(j[jn])
         if cv != jv:
@@ -54,12 +65,26 @@ compare("hook/framework/bus_protocol.h", "java_patch/com/luka/carplay/bus/Carpla
 }, ("CMD_", "EVT_"))
 compare("hook/framework/bus.c", "java_patch/com/luka/carplay/bus/CarplayBus.java", {"MAX_TYPES": "MAX_TYPES"})
 bus_limit = numeric(constants("hook/framework/bus.c")["MAX_TYPES"])
-for name, value in constants("hook/framework/bus_protocol.h").items():
-    if name.startswith(("CMD_", "EVT_")) and numeric(value) >= bus_limit:
-        raise SystemExit(f"Bus dispatch table cannot register {name}={value}")
+# Commands and events share one dispatch table in each peer. Matching peers can
+# still be broken if two distinct symbols claim the same table slot.
+for path, java in (("hook/framework/bus_protocol.h", False),
+                   ("java_patch/com/luka/carplay/bus/CarplayBus.java", True)):
+    slots = {}
+    for name, value in constants(path, java).items():
+        if not name.startswith(("CMD_", "EVT_")):
+            continue
+        opcode = numeric(value)
+        if not 0 <= opcode < bus_limit:
+            raise SystemExit(f"Bus dispatch table cannot register {name}={opcode} in {path}; expected 0 <= opcode < {bus_limit}")
+        if opcode in slots:
+            raise SystemExit(f"Duplicate bus opcode {opcode} in {path}: {slots[opcode]} and {name}")
+        slots[opcode] = name
 compare("maneuver_render/protocol.h", "java_patch/com/luka/carplay/rgd/RendererServer.java", {
     "CR_TCP_PORT": "PORT", "CR_PKT_SIZE": "PKT_SIZE",
-}, ("CMD_", "EVT_", "MAN_FLAG_"))
+}, ("CMD_", "EVT_", "MAN_FLAG_"),
+    # The Java client deliberately omits the renderer's diagnostic/lifecycle
+    # commands. Every other renderer opcode and maneuver flag has a peer.
+    c_only=("CMD_SCREENSHOT", "CMD_SHUTDOWN", "CMD_PERSPECTIVE", "CMD_DEBUG"))
 compare("altscreen_render/protocol.h", "java_patch/com/luka/carplay/core/AltscreenControlServer.java", {
     "ALTCTL_PORT": "PORT", "ALTEVT_VIDEO_ON": "EVT_VIDEO_ON", "ALTEVT_VIDEO_OFF": "EVT_VIDEO_OFF",
     "ALTEVT_LOADER_READY": "EVT_LOADER_READY",
@@ -76,7 +101,7 @@ def same_path(c_path, c_name, java_path):
     """Java names these files as string literals (tests point them at scratch files)."""
     global checks
     value = constants(c_path)[c_name].strip()
-    if not value.startswith('"') or value not in (ROOT / java_path).read_text():
+    if not value.startswith('"') or value not in (ROOT / java_path).read_text(encoding="utf-8"):
         raise SystemExit(f"Path mismatch: {c_path}:{c_name} not named by {java_path}")
     checks += 1
 

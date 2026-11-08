@@ -244,7 +244,7 @@ public final class CarPlaySettingsUi {
 
     /** Unknown (-1), audio management (0), and internal amps cannot enable these controls. */
     public static boolean available() {
-        return amplifier > 3;
+        return com.luka.carplay.core.Features.UPMIX && amplifier > 3;
     }
 
     public static boolean isAltScreenEnabled() {

@@ -120,7 +120,8 @@ public final class Partial360PreflightTest {
             define.setAccessible(true); define.invoke(dm);
             DisplayContext[] contexts = (DisplayContext[])get(dm, "dc");
             /* A5: stock 0..78, CarPlay 80/81 (Virtual Cockpit) and 82/83 (MOST MAP / arrows views). */
-            check(contexts.length == (kombi == 4 ? 158 : 84), "context allocation changed: revisit ID audit");
+            check(contexts.length == (kombi == 4 ? 158 : 85), "context allocation changed: revisit ID audit");
+            if (kombi != 4) check(Arrays.equals(contexts[84].getDisplayableList(), new int[]{98,101,102,33}), "VC stock-map context collides with MOST");
             check(Arrays.equals(contexts[3].getDisplayableList(), new int[]{16,17}), "stock RVC context changed");
             check(Arrays.equals(contexts[78].getDisplayableList(), new int[]{16,59}), "ordinary CarPlay changed");
             List<Integer> holes = new ArrayList<>();
