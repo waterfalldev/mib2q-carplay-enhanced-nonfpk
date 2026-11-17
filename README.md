@@ -22,6 +22,8 @@ AltScreen mods with their own uninstallers first. Roll back before updating firm
 
 - The phone's CarPlay map in the MOST MAP view, with steering-wheel roller zoom
   and the cluster's Light / Dark / Automatic theme. Waze ignores zoom and theme.
+- Android Auto map video in the same analogue-cluster MAP view (source support;
+  vehicle validation is pending).
 - CarPlay maneuvers, lane arrows, distance and guidance text on the supported
   cluster/HUD paths; cover art on the cluster.
 - Calls, recents, favourites and phone battery on the cluster telephone tab.

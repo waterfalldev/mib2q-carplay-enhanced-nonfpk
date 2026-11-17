@@ -55,6 +55,33 @@ companion. A readiness token identifies the presented window. A resize or new
 token triggers stock restoration and fresh composition, rather than cropping a
 window that no longer exists. A missing request releases the renderer's map window.
 
+## Android Auto on the analogue cluster
+
+The Android Auto hook in `gal` captures its 1920x1080 secondary-display H.264
+stream into a separate shared-memory ring. On MOST the renderer selects this ring
+for an active Android Auto session, crops the centered 1440x540 viewport and
+scales it into the measured 800x298 MAP window. It does not route the map through
+Virtual Cockpit or start `altscreen_render`.
+
+The existing **When navigating** and **Always on** map preference also controls
+Android Auto; an active Android Auto session counts as navigation because this
+receiver hook does not expose a separate map-route lifecycle. Off restores Audi's
+MAP. Disconnect also withdraws the MAP request and returns to CarPlay's ring when
+that session is active.
+
+The hook yields the shared QCOM decoder before `gal` changes its main-screen
+decoder state. `maneuver_render` publishes its ownership and holds the decoder
+until three seconds after the last yield request, then resumes from the latest
+configuration and key frame.
+
+The firmware investigation confirmed the P5092/MU1329 `gal` and
+`libautoreceiver.so` match the existing hook's supported profiles. The Android
+Auto native hook still needs to be built with `scripts/build_aa_hook.sh`. For an
+SD release, its package builder must install `libaa_cluster_hook.so` and
+`aa_startup.sh`, and merge `deploy/smartphone_integrator/aa_child.json` into
+`children.gal`; that separate package-tooling repository is not part of this
+source tree.
+
 ## Cluster platform selection
 
 MOST keeps stock ownership of terminal 1. The VC `altscreen_render` path is not
@@ -75,7 +102,8 @@ Maps Off does not start an Audi route or disable CarPlay's guidance arrows.
 ## Validation boundary
 
 `MostMapViewTest` exercises measured/confirmed windows, stock restoration, mode
-changes, stream/owner changes, independent arrows, zoom and theme against the
-shipping Java classes. `CarPlaySettingsAvailabilityTest` checks real widget shape,
-label order and saved-choice boot restoration. Hardware decode, the encoder and
-phone application behavior still need vehicle evidence for a changed artifact.
+changes, stream/owner changes, Android Auto activation, independent arrows, zoom
+and theme against the shipping Java classes. `CarPlaySettingsAvailabilityTest`
+checks real widget shape, label order and saved-choice boot restoration. The
+Android Auto source geometry, hardware decode, encoder and phone behavior still
+need vehicle evidence for this integration.

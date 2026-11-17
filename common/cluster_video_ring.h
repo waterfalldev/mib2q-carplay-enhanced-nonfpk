@@ -2,9 +2,10 @@
  * cluster_video_ring - the phone's cluster stream, from the hook in dio_manager to the
  * renderer that shows it (maneuver_render, window 99).
  *
- * One POSIX shared-memory object: a header, then a byte ring of records.  The hook is its only
- * writer and never waits: it overwrites the oldest records, so a slow or absent reader can
- * never hold dio_manager up.  A reader validates each record after copying it, seqlock style:
+ * One POSIX shared-memory object per phone source: a header, then a byte ring of records.
+ * The CarPlay hook and Android Auto hook use separate names; each has one writer and never
+ * waits, overwriting the oldest records so a slow or absent reader cannot hold a phone session
+ * up. A reader validates each record after copying it, seqlock style:
  * before writing, the writer publishes how far it is about to write (`reserve`), after, how far
  * it has written (`head`).
  *
@@ -40,10 +41,16 @@
 #ifndef CVR_SHM_NAME
 #define CVR_SHM_NAME     "/cr_cluster_video"    /* not carplay_*: the log collector copies those from /tmp */
 #endif
+#ifndef CVR_AA_SHM_NAME
+#define CVR_AA_SHM_NAME  "/aa_cluster_video"
+#endif
+#ifndef CVR_AA_ACTIVE_PATH
+#define CVR_AA_ACTIVE_PATH "/tmp/aa_cluster_active"
+#endif
 #define CVR_MAGIC        0x33525643u            /* "CVR3": layout version included */
 #define CVR_WAKE_READY   0x454b4157u            /* "WAKE": cvr_header_t.wake is set up */
 #ifndef CVR_DATA_BYTES                          /* a power of two; smaller only in host tests */
-#define CVR_DATA_BYTES   (1u << 20)             /* about 4 s of the cluster map (map11: frames <= 43 KB) */
+#define CVR_DATA_BYTES   (1u << 23)             /* up to 2 MiB per access unit */
 #endif
 #define CVR_RECORD_MAX   (CVR_DATA_BYTES / 4)   /* the largest record, its header included */
 #define CVR_KEY_WAIT     60                     /* frames passed over waiting for a key frame before asking */
@@ -110,10 +117,12 @@ static inline size_t cvr_shm_bytes(void) { return sizeof(cvr_header_t) + CVR_DAT
 static inline uint8_t *cvr_data(cvr_header_t *h) { return (uint8_t *)h + sizeof(cvr_header_t); }
 
 /* The ring mapped read-write: `create` opens or creates it (the writer).  NULL with errno. */
-static inline cvr_header_t *cvr_map(int create) {
+static inline cvr_header_t *cvr_map_named(int create, const char *name) {
     struct stat st;
     void *p = MAP_FAILED;
-    int e, fd = shm_open(CVR_SHM_NAME, create ? O_RDWR | O_CREAT : O_RDWR, 0600);
+    int e, fd;
+    if (!name || !*name) { errno = EINVAL; return NULL; }
+    fd = shm_open(name, create ? O_RDWR | O_CREAT : O_RDWR, 0600);
     if (fd < 0) return NULL;
     if ((!create || ftruncate(fd, (off_t)cvr_shm_bytes()) == 0) && fstat(fd, &st) == 0) {
         if ((size_t)st.st_size >= cvr_shm_bytes())
@@ -125,6 +134,10 @@ static inline cvr_header_t *cvr_map(int create) {
     close(fd);
     errno = e;
     return p == MAP_FAILED ? NULL : (cvr_header_t *)p;
+}
+
+static inline cvr_header_t *cvr_map(int create) {
+    return cvr_map_named(create, CVR_SHM_NAME);
 }
 
 static inline void cvr_unmap(cvr_header_t *h) {
@@ -141,8 +154,8 @@ typedef struct {
 
 /* Sets the ring up afresh: every reader starts over.  `seed` makes the first epoch differ
  * between boots.  0, or -1 with errno set. */
-static inline int cvr_writer_open(cvr_writer_t *w, uint32_t seed) {
-    cvr_header_t *h = cvr_map(1);
+static inline int cvr_writer_open_named(cvr_writer_t *w, uint32_t seed, const char *name) {
+    cvr_header_t *h = cvr_map_named(1, name);
     uint32_t epoch;
     memset(w, 0, sizeof(*w));
     if (!h) return -1;
@@ -161,6 +174,10 @@ static inline int cvr_writer_open(cvr_writer_t *w, uint32_t seed) {
     cvr_store(&h->magic, CVR_MAGIC);
     w->h = h;
     return 0;
+}
+
+static inline int cvr_writer_open(cvr_writer_t *w, uint32_t seed) {
+    return cvr_writer_open_named(w, seed, CVR_SHM_NAME);
 }
 
 static inline void cvr_writer_close(cvr_writer_t *w) {
@@ -254,10 +271,14 @@ typedef struct {
     uint32_t seen;                /* the writer's head at the last cvr_reader_next */
 } cvr_reader_t;
 
-static inline int cvr_reader_attach(cvr_reader_t *r) {
+static inline int cvr_reader_attach_named(cvr_reader_t *r, const char *name) {
     memset(r, 0, sizeof(*r));
-    r->h = cvr_map(0);
+    r->h = cvr_map_named(0, name);
     return r->h ? 0 : -1;
+}
+
+static inline int cvr_reader_attach(cvr_reader_t *r) {
+    return cvr_reader_attach_named(r, CVR_SHM_NAME);
 }
 
 static inline void cvr_reader_detach(cvr_reader_t *r) {

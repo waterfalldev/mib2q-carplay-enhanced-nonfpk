@@ -14,7 +14,7 @@ import static testsupport.TestSupport.*;
 /** The MOST MAP view through MostPresentation's shared engine, against the shipping display
  *  manager and stock core: MAP 72 -> 82 = {99} only for a measured, renderer-confirmed
  *  window, released back to stock, independent of the arrows view; requested by CarPlay
- *  guidance or the phone owning navigation, only while the phone's cluster stream is live;
+ *  guidance or the phone owning navigation while its stream is live, or by Android Auto;
  *  the wheel zooms it only then. */
 public final class MostMapViewTest {
 
@@ -37,6 +37,7 @@ public final class MostMapViewTest {
             // Existing navigation/stream cases explicitly exercise the route-only policy.
             setStatic(com.luka.carplay.connectivity.CarPlaySettingsUi.class,"currentAltScreen",
                 Integer.valueOf(com.luka.carplay.connectivity.CarPlaySettingsUi.ALTSCREEN_WHEN_NAVIGATING));
+            MostPresentation.setAndroidAutoActive(false);
             listener.hmi = hmi;
             MostArrowsTest.mostSession(true);
             Method defineContexts = DisplayManagerMIB2High.class.getDeclaredMethod("defineContexts");
@@ -71,6 +72,7 @@ public final class MostMapViewTest {
             MostPresentation.setMapLive(false);
             MostPresentation.setActive(false);
             MostPresentation.setNavigationOwner(0);
+            MostPresentation.setAndroidAutoActive(false);
             hmi.idle();
             Thread.sleep(50);
             hmi.idle();
@@ -408,10 +410,34 @@ public final class MostMapViewTest {
         }
     }
 
+    private static void androidAutoSession() throws Exception {
+        try (Rig r = new Rig()) {
+            r.extents.put(Integer.valueOf(33), new int[]{800, 298});
+            r.choose(72);
+            r.report("0800 0298 0000001234.0000000001\n");
+            MostArrowsTest.mostSession(false);
+            MostPresentation.setAndroidAutoActive(true);
+            check(MostArrowsTest.waitFor(r.dsi, "switch 82 term 4", 3000L),
+                "Android Auto requests MAP without an AltScreen/CarPlay connection");
+            r.hmi.idle();
+            check(MostPresentation.isMapActive() && !MostPresentation.isActive(),
+                "Android Auto composes only the MAP view");
+            check("1\n".equals(MostArrowsTest.read(new File("/tmp/aa_cluster_active"))),
+                "Android Auto publishes its dedicated stream selection");
+            MostPresentation.setAndroidAutoActive(false);
+            r.hmi.idle();
+            check(!MostPresentation.isMapActive() && r.requestText() == null,
+                "Android Auto disconnect restores the stock MAP and withdraws its window");
+            check(!new File("/tmp/aa_cluster_active").exists(),
+                "Android Auto disconnect clears its stream selection");
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         if (args.length>0 && args[0].equals("settings")) {
             mapSetting();
             alwaysOnPolicy();
+            androidAutoSession();
             System.out.println("MostMapViewTest settings: PASS ("+checks+" checks)");
             return;
         }

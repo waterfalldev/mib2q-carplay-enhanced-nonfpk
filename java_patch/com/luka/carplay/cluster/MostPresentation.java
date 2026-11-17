@@ -1,5 +1,5 @@
 /*
- * MostPresentation - CarPlay pictures in the stock views of a MOST cluster.
+ * MostPresentation - phone pictures in the stock views of a MOST cluster.
  *
  * On a cluster coded for map/KDK over MOST (sysConst 541 == 1) the stock head unit offers two
  * views (ClusterInputListener.validateViewMode): MAP and KDK.  KDK is the "arrows" screen: the
@@ -49,6 +49,7 @@ package com.luka.carplay.cluster;
 import com.luka.carplay.framework.Log;
 import com.luka.carplay.connectivity.CarPlaySettingsUi;
 import de.audi.tghu.fwhmi.IDisplayManagerKombiControl;
+import java.io.IOException;
 
 public final class MostPresentation {
     public static final int TERMINAL_CLUSTER = com.luka.carplay.core.AltScreenModule.TERMINAL_CLUSTER;
@@ -57,6 +58,7 @@ public final class MostPresentation {
     public static final int CTX_STOCK_MAP = 72;      /* stock MAP view: {33} */
     public static final int CTX_CARPLAY_MAP = 82;    /* DisplayManagerMIB2High dc[82] = {99} */
     public static final int MAP_DISPLAYABLE = 99;    /* maneuver_render's map window */
+    private static final String AA_ACTIVE_PATH = "/tmp/aa_cluster_active";
     /* maneuver_render content: protocol.h CR_DEFAULT_WIDTH x (CR_DEFAULT_HEIGHT - 1 ECC row).
      * On MOST the renderer fits its whole 328x181 frame (ECC row included) into window 98. */
     static final int SRC_W = 328;
@@ -162,7 +164,7 @@ public final class MostPresentation {
     /** True while the DisplayManager composes CarPlay's maneuver for the arrows view. */
     public static boolean isActive() { return ARROWS.applied; }
 
-    /** True while the DisplayManager composes CarPlay's picture for the MAP view. */
+    /** True while the DisplayManager composes the phone's picture for the MAP view. */
     public static boolean isMapActive() { return MAP.applied; }
 
     /** The context the DisplayManager composes for a stock terminal-1 request. */
@@ -212,6 +214,7 @@ public final class MostPresentation {
      * order. */
     private static final Object REQUESTS = new Object();
     private static boolean guiding, mapLive;
+    private static volatile boolean androidAutoActive;
     private static int navOwner;
 
     /** CarPlay route guidance started/stopped on a MOST cluster (AltScreenModule): the arrows view,
@@ -235,6 +238,27 @@ public final class MostPresentation {
         }
     }
 
+    /** Android Auto owns a separate cluster-video ring and requests the same MOST MAP view. */
+    public static void setAndroidAutoActive(boolean active) {
+        boolean enabled = active && ClusterPlatform.isMost();
+        try {
+            if (enabled) RecordFiles.write(AA_ACTIVE_PATH, "1\n");
+            else if (!RecordFiles.remove(AA_ACTIVE_PATH))
+                Log.w(MAP.tag, "Android Auto cluster marker could not be removed");
+        } catch (IOException e) {
+            Log.w(MAP.tag, "Android Auto cluster marker write failed: " + e);
+            enabled = false;
+            if (!RecordFiles.remove(AA_ACTIVE_PATH))
+                Log.w(MAP.tag, "Android Auto cluster marker cleanup failed");
+        }
+        synchronized (REQUESTS) {
+            androidAutoActive = enabled;
+            setMapRequested(mapWanted());
+        }
+    }
+
+    public static boolean isAndroidAutoActive() { return androidAutoActive; }
+
     /** The owner of CarPlay's navigation app state (CarplayDSILifecycleController.updateMode),
      *  0 at disconnect (AltScreenModule).  The phone owns it while any of its apps runs a route,
      *  including one that sends no route guidance, such as Waze: the MAP view follows that too. */
@@ -255,12 +279,17 @@ public final class MostPresentation {
     }
 
     private static boolean mapWanted() {
-        return mapLive && CarPlaySettingsUi.isMostMapEnabled(guiding || navOwner == NAV_OWNER_PHONE);
+        boolean navigation = androidAutoActive || guiding || navOwner == NAV_OWNER_PHONE;
+        return (mapLive || androidAutoActive) && CarPlaySettingsUi.isMostMapEnabled(navigation);
+    }
+
+    private static boolean sessionConnected(View v) {
+        return (v == MAP && androidAutoActive) || com.luka.carplay.core.AltScreenModule.isConnected();
     }
 
     private static void setMapRequested(boolean on) {
         if (setRequested(MAP, on)) {
-            Log.w(MAP.tag, on ? "MAP view: CarPlay picture requested" : "MAP view: CarPlay picture released");
+            Log.w(MAP.tag, on ? "MAP view: phone picture requested" : "MAP view: phone picture released");
         }
     }
 
@@ -357,7 +386,7 @@ public final class MostPresentation {
             want = v.requested;
             gen = v.generation;
         }
-        want = want && com.luka.carplay.core.AltScreenModule.isConnected();
+        want = want && sessionConnected(v);
         if (d == null || o == null) return;
 
         if (!want) {
@@ -409,7 +438,7 @@ public final class MostPresentation {
         place(v, d, o, true);
         if (!known(extents)) startExtentsPoll(v, o, gen);   /* composed at the fallback */
         /* WARN: one line per composition edge, visible without the verbose marker. */
-        Log.w(v.tag, v.label + ": CarPlay " + v.content + " composed (ctx " + v.stockContext
+        Log.w(v.tag, v.label + ": phone " + v.content + " composed (ctx " + v.stockContext
             + " -> " + v.composedContext + ")");
         reapply(v, o);
         /* After the switch: the terminal-1 context and stock's view state (gfxAvailable,
@@ -622,7 +651,7 @@ public final class MostPresentation {
                 synchronized (LOCK) {
                     if (v.generation != gen || !v.requested || v.readyWaitSerial != serial) return DONE;
                 }
-                if (!com.luka.carplay.core.AltScreenModule.isConnected()) {
+                if (!sessionConnected(v)) {
                     synchronized (LOCK) {
                         if (v.generation == gen && v.readyWaitSerial == serial) retireReadyWaitLocked(v);
                     }
@@ -822,7 +851,7 @@ public final class MostPresentation {
                 synchronized (LOCK) {
                     if (v.generation != gen || !v.requested || v.extentsPollGen != gen) return false;
                 }
-                return com.luka.carplay.core.AltScreenModule.isConnected();
+                return sessionConnected(v);
             }
         }, EXTENTS_POLL_MS);
     }

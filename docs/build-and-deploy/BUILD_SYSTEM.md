@@ -48,7 +48,9 @@ firmware fingerprints, installation/rollback and package checksums. Hardware and
 phone behavior also require validation on the target vehicle.
 
 For component development, use `scripts/java/docker.sh`, `scripts/build_hook.sh`,
-`scripts/build_renderers.sh` and `scripts/run_tests.sh`.
+`scripts/build_aa_hook.sh`, `scripts/build_renderers.sh` and `scripts/run_tests.sh`.
+The Android Auto hook build emits `build/libaa_cluster_hook.so`; the package builder
+must also merge its `aa_child.json` descriptor when creating an SD overlay.
 
 Check documentation with:
 

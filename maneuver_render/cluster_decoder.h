@@ -40,6 +40,12 @@ void cluster_decoder_poll(void);
 /* Ends the current stream's decoder and logs its totals. */
 void cluster_decoder_close(void);
 
+/* True for the hold interval after Android Auto's main-screen decoder requests the video core. */
+int cluster_decoder_yield_requested(void);
+
+/* Selects Android Auto's 1920x1080 source geometry before opening the next stream. */
+void cluster_decoder_set_android_auto(int enabled);
+
 /* Whether a picture newer than `serial` is waiting. */
 int cluster_decoder_fresh(unsigned serial);
 

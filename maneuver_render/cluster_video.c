@@ -5,6 +5,7 @@
 #include "alt_timing_stats.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -20,6 +21,16 @@ static pthread_t g_thread;
 
 static int running(void) { return __sync_fetch_and_add(&g_run, 0); }
 
+static int android_auto_selected(void) {
+    char active;
+    int fd = open(CVR_AA_ACTIVE_PATH, O_RDONLY);
+    ssize_t n;
+    if (fd < 0) return 0;
+    n = read(fd, &active, 1);
+    close(fd);
+    return n == 1 && active == '1';
+}
+
 /* Sleeps `ms`, in steps short enough to notice cluster_video_stop. */
 static void pause_ms(long ms) {
     while (ms > 0 && running()) {
@@ -34,7 +45,7 @@ static void *video_main(void *unused) {
     static uint8_t unit[CVR_RECORD_MAX];
     cvr_reader_t r;
     cvr_record_t rec;
-    int attached = 0, last_errno = 0, decoding = 0;
+    int attached = 0, active_aa = -1, last_errno = 0, decoding = 0;
     uint64_t last_unit = 0, last_request = 0;
     (void)unused;
     while (running()) {
@@ -45,16 +56,37 @@ static void *video_main(void *unused) {
             pause_ms(CV_IDLE_SLEEP_MS);
             continue;
         }
+        {
+            int aa = android_auto_selected();
+            if (aa != active_aa) {
+                if (attached) {
+                    if (decoding) cluster_decoder_close();
+                    cvr_reader_detach(&r);
+                    attached = decoding = 0;
+                    fprintf(stderr, "cluster_video: switching to %s stream\n", aa ? "Android Auto" : "CarPlay");
+                }
+                cluster_decoder_set_android_auto(aa);
+                active_aa = aa;
+            }
+        }
         if (!attached) {
-            if (cvr_reader_attach(&r) != 0) {
+            const char *ring = active_aa ? CVR_AA_SHM_NAME : CVR_SHM_NAME;
+            if (cvr_reader_attach_named(&r, ring) != 0) {
                 if (errno != last_errno)
-                    fprintf(stderr, "cluster_video: no frame ring %s yet (errno=%d)\n", CVR_SHM_NAME, errno);
+                    fprintf(stderr, "cluster_video: no frame ring %s yet (errno=%d)\n", ring, errno);
                 last_errno = errno;
                 pause_ms(CV_ATTACH_RETRY_MS);
                 continue;
             }
             attached = 1;
-            fprintf(stderr, "cluster_video: following the frame ring %s\n", CVR_SHM_NAME);
+            fprintf(stderr, "cluster_video: following the frame ring %s\n", ring);
+        }
+        if (cluster_decoder_yield_requested()) {
+            if (decoding) cluster_decoder_close();
+            decoding = 0;
+            cvr_reader_restart(&r);
+            pause_ms(40);
+            continue;
         }
         if (!decoding) {                                /* the decoder starts at a config and key frame */
             decoding = 1;

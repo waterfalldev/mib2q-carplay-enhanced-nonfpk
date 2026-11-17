@@ -9,6 +9,8 @@ Virtual Cockpit requires additional firewall configuration and has not been vali
 ## Included
 
 - CarPlay maps on the cluster: Off, When navigating or Always on.
+- Android Auto map video in the same MOST MAP view on the supported analogue
+  cluster (source support; in-car validation pending).
 - Guidance arrows, lane guidance, distance and navigation text.
 - Steering-wheel map zoom and Light / Dark / Automatic map appearance.
   Waze ignores zoom and appearance requests.

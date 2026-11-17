@@ -281,7 +281,8 @@ cc -std=gnu99 -O1 -Wall -Wextra -Werror -DENABLE_LOGGING=0 \
 
 printf '%-32s ' cluster_video_ring_test
 cc -std=gnu99 -O2 -Wall -Wextra -Werror -DCVR_DATA_BYTES='(1u << 16)' \
-    "-DCVR_SHM_NAME=\"/cr_cluster_video_ring$$\"" -Icommon -Itests tests/cluster_video_ring_test.c \
+    "-DCVR_SHM_NAME=\"/cr_cluster_video_ring$$\"" "-DCVR_AA_SHM_NAME=\"/aa_cluster_video_ring$$\"" \
+    -Icommon -Itests tests/cluster_video_ring_test.c \
     -lpthread $RT_LIB -o "$OUT/cluster_video_ring"
 "$OUT/cluster_video_ring"
 
@@ -488,3 +489,6 @@ fi
 
 printf '%-32s ' supervisor_lifecycle_test
 sh scripts/test_supervisor_lifecycle.sh
+
+printf '%-32s ' aa_startup_test
+sh scripts/test_aa_startup.sh

@@ -277,11 +277,36 @@ static void waking(void) {
     cvr_writer_close(&w);
 }
 
+static void named_rings(void) {
+    cvr_writer_t carplay, android_auto;
+    cvr_reader_t reader;
+    shm_unlink(CVR_SHM_NAME);
+    shm_unlink(CVR_AA_SHM_NAME);
+    check(cvr_writer_open(&carplay, 11) == 0, "CarPlay ring opens");
+    check(cvr_writer_open_named(&android_auto, 12, CVR_AA_SHM_NAME) == 0, "Android Auto ring opens separately");
+    cvr_writer_new_session(&carplay);
+    cvr_writer_new_session(&android_auto);
+    put(&carplay, 32, CVR_CONFIG);
+    put(&carplay, 48, CVR_FRAME | CVR_KEY);
+    put(&android_auto, 40, CVR_CONFIG);
+    put(&android_auto, 64, CVR_FRAME | CVR_KEY);
+    check(cvr_reader_attach_named(&reader, CVR_AA_SHM_NAME) == 0, "reader selects Android Auto ring");
+    check(take(&reader, NULL) == CVR_CONFIG, "selected ring starts with Android Auto config");
+    check(take(&reader, NULL) == (CVR_FRAME | CVR_KEY), "selected ring returns Android Auto key frame");
+    check(take(&reader, NULL) < 0, "selected ring does not read CarPlay records");
+    cvr_reader_detach(&reader);
+    cvr_writer_close(&carplay);
+    cvr_writer_close(&android_auto);
+    shm_unlink(CVR_SHM_NAME);
+    shm_unlink(CVR_AA_SHM_NAME);
+}
+
 int main(void) {
     basics();
     wrapping();
     racing();
     waking();
+    named_rings();
     shm_unlink(CVR_SHM_NAME);
     printf("cluster_video_ring_test: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

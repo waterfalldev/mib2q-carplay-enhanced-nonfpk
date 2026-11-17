@@ -56,6 +56,7 @@ public class TerminalModeBapCombi implements ITerminalModeComponent {
         this.context.getDeviceManager().addActiveDeviceListener(this.activeDeviceListener);
         this.context.getAudioManager().addAudioContextListener(this.audioStateListener);
 
+        com.luka.carplay.cluster.MostPresentation.setAndroidAutoActive(false);
         /* ===== CarPlay: bring the transport (bus :19810) up ALWAYS-ON at component
          * init, independent of any CarPlay session — the C hook connects once at boot
          * and stays connected.  onActivate/onDeactivate only gate the modules. ===== */
@@ -67,6 +68,7 @@ public class TerminalModeBapCombi implements ITerminalModeComponent {
     }
 
     public void deinit() {
+        com.luka.carplay.cluster.MostPresentation.setAndroidAutoActive(false);
         try { com.luka.carplay.core.CarPlayApp.onDeactivateAndWait(); }
         catch (Throwable t) { /* optional lifecycle cleanup */ }
         try { com.luka.carplay.coverart.CoverArt.getInstance().stop(this.eventListener); }
@@ -86,6 +88,16 @@ public class TerminalModeBapCombi implements ITerminalModeComponent {
         }
 
         public void updateActiveDeviceState(TMDevice tmdevice) {
+            if (tmdevice.isAndroidAutoDevice()
+                    && (tmdevice.connectionState().is(TMDevice.ConnectionState.ACTIVATING)
+                        || tmdevice.connectionState().is(TMDevice.ConnectionState.ACTIVE))) {
+                com.luka.carplay.cluster.MostPresentation.setAndroidAutoActive(true);
+            } else if (com.luka.carplay.cluster.MostPresentation.isAndroidAutoActive()
+                    && (!tmdevice.isAndroidAutoDevice()
+                        || tmdevice.connectionState().is(TMDevice.ConnectionState.INVALID))) {
+                com.luka.carplay.cluster.MostPresentation.setAndroidAutoActive(false);
+            }
+
             if (tmdevice.connectionState().is(TMDevice.ConnectionState.ACTIVATING)) {
                 this.this$0.bapService.updateActiveInfoState(9);
                 int i = this.getBapSourceType(tmdevice);

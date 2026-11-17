@@ -38,6 +38,7 @@ backup to make the installer continue. For a unit stuck at the Audi logo, see
 | Component | Location |
 | --- | --- |
 | Hook, renderers, atlas and runtime scripts | `/mnt/app/root/hooks/` |
+| Android Auto cluster hook and `gal` wrapper (when enabled by the release builder) | `/mnt/app/root/hooks/` |
 | Java patch | `/mnt/app/eso/hmi/lsd/jars/carplay_hook.jar` |
 | SI and DIO configuration | `/mnt/system/etc/eso/production/` |
 | Managed backups | `/mnt/app/root/carplay-rgi-backup/` |
@@ -46,6 +47,11 @@ backup to make the installer continue. For a unit stuck at the Audi logo, see
 The package also replaces the verified SI binary, `libairplay.so`, MCD/config and
 USB/NCM scripts. Originals are pinned in the package and verified for rollback.
 See the [firmware changes](../stock-patches/CONFIGURATION_AND_HOOKS.md).
+
+Android Auto MOST support additionally requires `libaa_cluster_hook.so` and
+`aa_startup.sh` in the hooks directory, plus `aa_child.json` merged into
+`children.gal`. The package-tooling repository is separate from this source tree;
+an existing SD ZIP will not gain these files until that builder is updated.
 
 The legacy SD paths `mod/carplay-rgi` and on-unit backup names remain for upgrade
 compatibility. On MOST, `maneuver_render` owns the arrows and map windows;

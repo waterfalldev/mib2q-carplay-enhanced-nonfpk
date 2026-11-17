@@ -44,7 +44,7 @@ static void tile_order(size_t cols, size_t rows, size_t *pos) {
 
 /* One plane of w bytes x h lines as TILE_4x2 at dst; returns its bytes. */
 static size_t write_tiled(uint8_t *dst, size_t w, size_t h, int chroma, unsigned frame) {
-    size_t cols = ((w + 63) / 64 + 1) & ~(size_t)1, rows = (h + 31) / 32, pos[64 * 16], tx, ty, r, c;
+    size_t cols = ((w + 63) / 64 + 1) & ~(size_t)1, rows = (h + 31) / 32, pos[64 * 64], tx, ty, r, c;
     tile_order(cols, rows, pos);
     for (ty = 0; ty < rows; ++ty)
         for (tx = 0; tx < cols; ++tx)
@@ -118,6 +118,7 @@ static int fake_set(omx_component_t *c, uint32_t index, void *p) {
         if (d->port == OMX_PORT_OUT) {
             if (f.refuse_tiled || d->video.color != FAKE_TILED) return (int)0x80001019u;  /* UnsupportedSetting */
             s->video.color = d->video.color;
+            s->buffer_size = (uint32_t)tiled_bytes(d->video.width, d->video.height);
         }
         s->count_actual = d->count_actual;
         s->video.width = d->video.width;
@@ -156,6 +157,7 @@ static int fake_free(omx_component_t *c, uint32_t port, omx_header_t *h) {
 /* Every frame becomes a picture in the oldest queued output. */
 static int fake_empty(omx_component_t *c, omx_header_t *h) {
     size_t luma;
+    uint32_t width = f.port[1].video.width, height = f.port[1].video.height;
     omx_header_t *out;
     (void)c;
     if (f.state != OMX_STATE_EXECUTING) return (int)0x80001017u;
@@ -173,8 +175,8 @@ static int fake_empty(omx_component_t *c, omx_header_t *h) {
     memmove(f.queue, f.queue + 1, --f.queued * sizeof(f.queue[0]));
     memset(out->buffer, 0xee, out->alloc_len);
     out->offset = 0;
-    luma = (write_tiled(out->buffer, CD_WIDTH, CD_HEIGHT, 0, f.frames) + 8191) / 8192 * 8192;
-    out->filled_len = (uint32_t)(luma + write_tiled(out->buffer + luma, CD_WIDTH, CD_HEIGHT / 2, 1, f.frames));
+    luma = (write_tiled(out->buffer, width, height, 0, f.frames) + 8191) / 8192 * 8192;
+    out->filled_len = (uint32_t)(luma + write_tiled(out->buffer + luma, width, height / 2, 1, f.frames));
     if (f.short_pictures) out->filled_len /= 2;
     f.cb->fill_done(&f.c, NULL, out);
     return 0;
@@ -251,6 +253,27 @@ static int target_is(unsigned frame, int as_is) {
 }
 
 static int tiled_target_is(unsigned frame) { return target_is(frame, 0); }
+
+static int android_auto_target_is(unsigned frame) {
+    int x, y;
+    for (y = 0; y < TH; ++y) {
+        int sy = 270 + (int)((int64_t)y * 540 / TH);
+        for (x = 0; x < TW; ++x) {
+            int sx = 240 + (int)((int64_t)x * 1440 / TW);
+            if (g_y[y][x] != full_luma(luma_at((size_t)sx, (size_t)sy, frame))) return 0;
+        }
+        for (x = TW; x < TW + TPAD; ++x) if (g_y[y][x] != 0x11) return 0;
+    }
+    for (y = 0; y < TH / 2; ++y) {
+        int sy = 135 + (int)((int64_t)y * 270 / (TH / 2));
+        for (x = 0; x < TW; ++x) {
+            int sx = (120 + (int)((int64_t)(x / 2) * 720 / (TW / 2))) * 2 + x % 2;
+            if (g_uv[y][x] != full_chroma(chroma_at((size_t)sx, (size_t)sy, frame))) return 0;
+        }
+        for (x = TW; x < TW + TPAD; ++x) if (g_uv[y][x] != 0x11) return 0;
+    }
+    return 1;
+}
 
 /* An Annex B SPS written bit by bit, emulation prevention inserted as an encoder does. */
 static struct { uint8_t rbsp[128]; size_t bits; } w;
@@ -354,6 +377,8 @@ int main(void) {
     uint8_t frame[100];
     unsigned serial = 0, i;
     int fed = 0, handles;
+    unlink(CD_HW_ACTIVE_PATH);
+    unlink(CD_HW_YIELD_PATH);
     memset(f.config, 0x67, sizeof(f.config));
     memset(frame, 0x41, sizeof(frame));
     memset(g_y, 0x11, sizeof(g_y));
@@ -526,6 +551,31 @@ int main(void) {
         cluster_decoder_feed(9, 0, frame, sizeof(frame), 1000);
         check(g_range == 0 && copy(&serial) == 1 && target_is(f.frames, 0), "a video-range stream's are expanded");
     }
+    cluster_decoder_close();
+    cluster_decoder_set_android_auto(1);
+    {
+        unsigned aa_frame = f.frames + 1;
+        FILE *yield_file;
+        check(cluster_decoder_feed(10, 1, f.config, sizeof(f.config), 0) == 0
+              && f.port[0].video.width == 1920 && f.port[0].video.height == 1080
+              && f.port[1].video.width == 1920 && f.port[1].video.height >= 1080,
+              "Android Auto opens a full-resolution hardware decoder");
+        check(access(CD_HW_ACTIVE_PATH, F_OK) == 0, "active hardware decoder is published to gal");
+        check(cluster_decoder_feed(10, 0, frame, sizeof(frame), 1000) == 0
+              && copy(&serial) == 1 && android_auto_target_is(aa_frame),
+              "Android Auto's centered 1440x540 viewport is scaled into the MOST map");
+        yield_file = fopen(CD_HW_YIELD_PATH, "w");
+        if (yield_file) {
+            fprintf(yield_file, "%llu\n", (unsigned long long)(monotonic_ns() / 1000000u));
+            fclose(yield_file);
+        }
+        check(yield_file != NULL && cluster_decoder_yield_requested(),
+              "gal's video-core yield is observed");
+        cluster_decoder_close();
+        check(access(CD_HW_ACTIVE_PATH, F_OK) != 0, "decoder ownership is cleared after release");
+        unlink(CD_HW_YIELD_PATH);
+    }
+    cluster_decoder_set_android_auto(0);
     printf("cluster_decoder_test: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

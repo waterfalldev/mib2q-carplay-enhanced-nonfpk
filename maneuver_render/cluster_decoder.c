@@ -10,6 +10,7 @@
 #include <pthread.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -39,6 +40,15 @@
 #define CD_TILE_H                   32
 #define CD_TILE_BYTES               (CD_TILE_W * CD_TILE_H)
 #define CD_TILE_GROUP               (4 * CD_TILE_BYTES)
+#define CD_AA_STREAM_WIDTH          1920
+#define CD_AA_STREAM_HEIGHT         1080
+#define CD_AA_VIEW_WIDTH            1440
+#define CD_AA_VIEW_HEIGHT           540
+#define CD_AA_CROP_X                ((CD_AA_STREAM_WIDTH - CD_AA_VIEW_WIDTH) / 2)
+#define CD_AA_CROP_Y                ((CD_AA_STREAM_HEIGHT - CD_AA_VIEW_HEIGHT) / 2)
+#define CD_HW_ACTIVE_PATH           "/tmp/altscreen_render.hw_active"
+#define CD_HW_YIELD_PATH            "/tmp/altscreen_render.hw_yield"
+#define CD_HW_YIELD_HOLD_MS         3000u
 
 typedef struct {
     uint32_t size, version;
@@ -104,6 +114,7 @@ static struct {
 static struct {
     omx_component_t *omx;
     uint32_t stream, given_up;
+    int android_auto;
     omx_port_t in, out;
     omx_header_t *inputs[CD_MAX_BUFFERS], *outputs[CD_MAX_BUFFERS];
     unsigned n_in, n_out, fed, dropped, logged_errors;
@@ -127,6 +138,9 @@ static struct {
 
 /* The range the stream's SPS signals (h264_sps_range): written at a config, read by the copy. */
 static int g_range = -1;
+static int g_active_published;
+static uint8_t g_aa_luma[CD_AA_STREAM_WIDTH * CD_AA_STREAM_HEIGHT];
+static uint8_t g_aa_chroma[CD_AA_STREAM_WIDTH * (CD_AA_STREAM_HEIGHT / 2)];
 
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 /* Timed waits run on CLOCK_MONOTONIC (alt_monotonic_condition.h), so a clock set after boot
@@ -152,6 +166,52 @@ static void wake_open(void) {
 }
 
 static uint64_t monotonic_ns(void) { return alt_timing_now_us() * 1000u; }
+
+static int publish_hw_active(void) {
+    char record[32];
+    int fd, n = snprintf(record, sizeof(record), "pid=%ld\n", (long)getpid());
+    if (n <= 0 || (size_t)n >= sizeof(record)) return -1;
+    fd = open(CD_HW_ACTIVE_PATH, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return -1;
+    {
+        ssize_t written = write(fd, record, (size_t)n);
+        if (written != n) {
+            int e = written < 0 ? errno : EIO;
+            close(fd);
+            unlink(CD_HW_ACTIVE_PATH);
+            errno = e;
+            return -1;
+        }
+    }
+    close(fd);
+    g_active_published = 1;
+    return 0;
+}
+
+static void clear_hw_active(void) {
+    if (!g_active_published) return;
+    if (unlink(CD_HW_ACTIVE_PATH) != 0 && errno != ENOENT)
+        fprintf(stderr, "cluster_decoder: cannot clear video-core owner marker errno=%d\n", errno);
+    g_active_published = 0;
+}
+
+int cluster_decoder_yield_requested(void) {
+    char record[32], *end;
+    unsigned long long stamp;
+    uint64_t now;
+    ssize_t n;
+    int fd = open(CD_HW_YIELD_PATH, O_RDONLY);
+    if (fd < 0) return 0;
+    n = read(fd, record, sizeof(record) - 1u);
+    close(fd);
+    if (n <= 0) return 0;
+    record[n] = 0;
+    errno = 0;
+    stamp = strtoull(record, &end, 10);
+    if (errno || end == record) return 0;
+    now = alt_timing_now_us() / 1000u;
+    return now < (uint64_t)stamp || now - (uint64_t)stamp < CD_HW_YIELD_HOLD_MS;
+}
 
 static int on_event(omx_component_t *c, void *app, int event, uint32_t d1, uint32_t d2, void *data) {
     (void)c; (void)app; (void)data;
@@ -256,8 +316,8 @@ static int port_get(omx_port_t *p, uint32_t port) {
 static int port_set(omx_port_t *p, uint32_t port, uint32_t count, uint32_t extra) {
     int e;
     if ((e = port_get(p, port)) != 0) return e;
-    p->video.width = CD_WIDTH;
-    p->video.height = CD_HEIGHT;
+    p->video.width = __sync_fetch_and_add(&g.android_auto, 0) ? CD_AA_STREAM_WIDTH : CD_WIDTH;
+    p->video.height = __sync_fetch_and_add(&g.android_auto, 0) ? CD_AA_STREAM_HEIGHT : CD_HEIGHT;
     p->video.framerate_q16 = CD_FPS << 16;
     p->video.compression = port == OMX_PORT_IN ? OMX_CODING_AVC : 0;
     if (port == OMX_PORT_OUT) p->video.color = CD_TILE_4X2;
@@ -366,7 +426,7 @@ static void free_buffers(void) {
 
 static void close_decoder(const char *why) {
     int loaded = 0;
-    if (!g.omx) return;
+    if (!g.omx) { clear_hw_active(); return; }
     if (g.state == OMX_STATE_EXECUTING) {
         g.omx->send_command(g.omx, OMX_COMMAND_STATE_SET, OMX_STATE_IDLE, NULL);
         wait_state(OMX_STATE_IDLE);
@@ -382,6 +442,7 @@ static void close_decoder(const char *why) {
     if (loaded) wait_state(OMX_STATE_LOADED);
     g_core.free_handle(g.omx);
     g.omx = NULL;
+    clear_hw_active();
     {
         /* The phone's own rate: pictures over the span they arrived in, and its longest pause. */
         uint64_t span_ms = g.pictures > 1 ? (g.newest_at - g.first_at) / 1000000u : 0u;
@@ -399,6 +460,7 @@ static void close_decoder(const char *why) {
 static int open_decoder(uint32_t stream) {
     uint32_t i;
     int e;
+    if (cluster_decoder_yield_requested()) return -2;
     if (!load_core()) return -1;
     (void)alt_condition_init(&g_changed);
     pthread_once(&g_wake_once, wake_open);      /* before any callback can write to it */
@@ -432,14 +494,21 @@ static int open_decoder(uint32_t stream) {
                 g.out.video.color, g.out.video.width, g.out.video.height, g.out.buffer_size);
         goto fail;
     }
+    if (publish_hw_active() != 0) {
+        fprintf(stderr, "cluster_decoder: cannot publish video-core owner marker errno=%d; refusing hardware decode\n",
+                errno);
+        goto fail;
+    }
+    if (cluster_decoder_yield_requested()) goto fail;
     if (g.omx->send_command(g.omx, OMX_COMMAND_STATE_SET, OMX_STATE_IDLE, NULL) != 0) goto fail;
     for (i = 0; i < g.in.count_actual; ++i, ++g.n_in)
         if (g.omx->allocate_buffer(g.omx, &g.inputs[i], OMX_PORT_IN, NULL, g.in.buffer_size) != 0) goto fail;
     for (i = 0; i < g.out.count_actual; ++i, ++g.n_out)
         if (g.omx->allocate_buffer(g.omx, &g.outputs[i], OMX_PORT_OUT, NULL, g.out.buffer_size) != 0) goto fail;
     if (wait_state(OMX_STATE_IDLE) != 0) goto fail;
-    if (g.omx->send_command(g.omx, OMX_COMMAND_STATE_SET, OMX_STATE_EXECUTING, NULL) != 0
-            || wait_state(OMX_STATE_EXECUTING) != 0) goto fail;
+    if (cluster_decoder_yield_requested()) goto fail;
+    if (g.omx->send_command(g.omx, OMX_COMMAND_STATE_SET, OMX_STATE_EXECUTING, NULL) != 0) goto fail;
+    if (wait_state(OMX_STATE_EXECUTING) != 0 || cluster_decoder_yield_requested()) goto fail;
     pthread_mutex_lock(&g_lock);
     for (i = 0; i < g.n_in; ++i) g.free_in[i] = g.inputs[i];
     g.n_free_in = g.n_in;
@@ -490,6 +559,7 @@ int cluster_decoder_feed(uint32_t stream, int config, const uint8_t *unit, uint3
     if (!g.omx) {
         if (!config || stream == g.given_up) return -1;
         if (open_decoder(stream) != 0) {
+            if (cluster_decoder_yield_requested()) return 1;
             g.given_up = stream;
             return -1;
         }
@@ -550,6 +620,10 @@ void cluster_decoder_close(void) {
     g.given_up = 0;
 }
 
+void cluster_decoder_set_android_auto(int enabled) {
+    __sync_lock_test_and_set(&g.android_auto, enabled ? 1 : 0);
+}
+
 /* Takes the newest picture newer than `serial` out of the decoder's reach for a copy without
  * the lock: NULL when there is none.  copy_end gives it back. */
 static omx_header_t *copy_begin(unsigned serial, unsigned *picture, uint32_t *w, uint32_t *h) {
@@ -582,16 +656,52 @@ int cluster_decoder_copy(unsigned *serial, uint8_t *y, int y_stride, uint8_t *uv
     omx_header_t *p = copy_begin(*serial, &picture, &fw, &fh);
     int copied = 0;
     if (!p) return 0;
+    if (w < 2 || h < 2 || y_stride < w || uv_stride < w) {
+        copy_end(p, 0);
+        return 0;
+    }
     if (p->filled_len >= tiled_bytes(fw, fh)) {
-        const int cw = w < (int)fw ? w : (int)fw, ch = h < (int)fh ? h : (int)fh;
         size_t cols, rows, chroma_rows, chroma_at;
         const uint8_t *src = p->buffer + p->offset;
         const int full = __sync_fetch_and_add(&g_range, 0) == 1;
+        const int aa = __sync_fetch_and_add(&g.android_auto, 0);
         pthread_once(&g_full_once, full_range_tables);
         tile_layout(fw, fh, &cols, &rows, &chroma_rows, &chroma_at);
-        untile_plane(src, cols, rows, y, y_stride, cw, ch, full ? g_same : g_full_luma, g.luma);
-        untile_plane(src + chroma_at, cols, chroma_rows, uv, uv_stride, cw, ch / 2, full ? g_same : g_full_chroma, NULL);
-        copied = 1;
+        if (aa) {
+            int x, row;
+            if (fw == CD_AA_STREAM_WIDTH && fh >= CD_AA_STREAM_HEIGHT && fh <= CD_AA_STREAM_HEIGHT + CD_TILE_H) {
+                untile_plane(src, cols, rows, g_aa_luma, CD_AA_STREAM_WIDTH, CD_AA_STREAM_WIDTH,
+                             CD_AA_STREAM_HEIGHT, full ? g_same : g_full_luma, g.luma);
+                untile_plane(src + chroma_at, cols, chroma_rows, g_aa_chroma, CD_AA_STREAM_WIDTH,
+                             CD_AA_STREAM_WIDTH, CD_AA_STREAM_HEIGHT / 2,
+                             full ? g_same : g_full_chroma, NULL);
+                for (row = 0; row < h; ++row) {
+                    int sy = CD_AA_CROP_Y + (int)((int64_t)row * CD_AA_VIEW_HEIGHT / h);
+                    for (x = 0; x < w; ++x) {
+                        int sx = CD_AA_CROP_X + (int)((int64_t)x * CD_AA_VIEW_WIDTH / w);
+                        y[(size_t)row * y_stride + x] = g_aa_luma[(size_t)sy * CD_AA_STREAM_WIDTH + sx];
+                    }
+                }
+                for (row = 0; row < h / 2; ++row) {
+                    int sy = CD_AA_CROP_Y / 2 + (int)((int64_t)row * (CD_AA_VIEW_HEIGHT / 2) / (h / 2));
+                    for (x = 0; x + 1 < w; x += 2) {
+                        int sx = (CD_AA_CROP_X / 2 + (int)((int64_t)(x / 2) * (CD_AA_VIEW_WIDTH / 2) / (w / 2))) * 2;
+                        uv[(size_t)row * uv_stride + x] = g_aa_chroma[(size_t)sy * CD_AA_STREAM_WIDTH + sx];
+                        uv[(size_t)row * uv_stride + x + 1] = g_aa_chroma[(size_t)sy * CD_AA_STREAM_WIDTH + sx + 1];
+                    }
+                }
+                copied = 1;
+            } else if (!g.warned_short++) {
+                fprintf(stderr, "cluster_decoder: Android Auto output %ux%u cannot supply the centered %ux%u view\n",
+                        fw, fh, CD_AA_VIEW_WIDTH, CD_AA_VIEW_HEIGHT);
+            }
+        } else {
+            const int cw = w < (int)fw ? w : (int)fw, ch = h < (int)fh ? h : (int)fh;
+            untile_plane(src, cols, rows, y, y_stride, cw, ch, full ? g_same : g_full_luma, g.luma);
+            untile_plane(src + chroma_at, cols, chroma_rows, uv, uv_stride, cw, ch / 2,
+                         full ? g_same : g_full_chroma, NULL);
+            copied = 1;
+        }
     } else if (!g.warned_short++) {
         fprintf(stderr, "cluster_decoder: a %u-byte picture, short of TILE_4x2 %ux%u; not shown\n",
                 p->filled_len, fw, fh);

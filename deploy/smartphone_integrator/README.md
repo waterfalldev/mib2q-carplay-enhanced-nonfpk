@@ -1,5 +1,11 @@
 # CarPlay child supervisor
 
+Android Auto uses the separate [`aa_child.json`](aa_child.json) descriptor for
+`children.gal` and [`aa_startup.sh`](aa_startup.sh). It preloads
+`libaa_cluster_hook.so` into `gal` only; the same monitor supervises the shared
+renderer while keeping `LD_PRELOAD` clear. The package builder must include the
+AA descriptor and hook assets when generating an SD release.
+
 The package builder installs these scripts and merges
 [`carplay_child.json`](carplay_child.json) into the stock SI configuration.
 Use the [managed package](../../docs/build-and-deploy/DEPLOY_AND_RELEASE.md);

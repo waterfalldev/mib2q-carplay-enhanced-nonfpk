@@ -10,13 +10,16 @@ installation; the application owns runtime behavior and component tests.
 smartphone_integrator
   carplay_startup.sh → exec dio_manager + libcarplay_hook.so
   carplay_monitor.sh → persistent renderers for that generation
+  aa_startup.sh → exec gal + libaa_cluster_hook.so
+  carplay_monitor.sh → adopts/starts the shared MOST renderer for that generation
 j9 / lsd
   carplay_hook.jar → module lifecycle, BAP adapters, MMI and display control
 ```
 
 On MOST, `maneuver_render` owns both the arrows scene (window 98) and decoded map
-(window 99). The monitor does not start `altscreen_render` for that platform.
-The VC uses its separate AltScreen context/renderer path.
+(window 99). CarPlay and Android Auto write to separate video rings; Java selects
+the active phone session. The monitor does not start `altscreen_render` for that
+platform. The VC uses its separate AltScreen context/renderer path.
 
 The supervisor, hook bus, renderer connection and USB/NCM interface have their own
 identity/generation checks. Do not collapse them into one PID or restart owner.
@@ -31,6 +34,8 @@ interposers; subscribers do not add competing definitions of those symbols.
 The wired profile includes route guidance, MOST map reception, cover art,
 telephone/car data and decoder-related hooks. Advanced audio and wireless modules
 are compiled out. Stock main audio, calls and microphone routing remain in use.
+Android Auto's `gal` hook sends its secondary-display stream to the same MOST
+renderer, which releases the hardware decoder during `gal` main-screen changes.
 
 ## Java patch
 
