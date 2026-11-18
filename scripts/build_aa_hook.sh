@@ -16,6 +16,9 @@ set -e
 IMG=qnx65-armv7-toolchain:latest
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) PROJECT_DIR="$(cygpath -m "$PROJECT_DIR")"; export MSYS_NO_PATHCONV=1 ;;
+esac
 SONAME=libaa_cluster_hook.so
 OUT="$PROJECT_DIR/build/$SONAME"
 mkdir -p "$(dirname "$OUT")"
