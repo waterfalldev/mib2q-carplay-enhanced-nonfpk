@@ -19,6 +19,8 @@ int cluster_decoder_feed(uint32_t stream, int config, const uint8_t *unit, uint3
 }
 void cluster_decoder_poll(void) { }
 void cluster_decoder_close(void) { ++g_closes; }
+int cluster_decoder_yield_requested(void) { return 0; }
+void cluster_decoder_set_android_auto(int enabled) { (void)enabled; }
 
 static void reset_fed(void) { g_fed = 0; memset(g_first, 0, sizeof(g_first)); }
 
